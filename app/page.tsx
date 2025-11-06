@@ -103,7 +103,7 @@ function HeroSection() {
           <h1 className="text-5xl md:text-7xl lg:text-8xl font-black text-gray-900 mb-6 leading-tight">
             For a lifetime of
             <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-green-600">
+            <span className="text-transparent bg-clip-text bg-green-400">
               WET-NOSED NUZZLES
             </span>
           </h1>
@@ -125,7 +125,7 @@ function HeroSection() {
               </Link>
             </motion.div>
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-              <Link href="#how-it-works">
+              <Link href="/dashboard">
                 <Button className="bg-transparent hover:bg-lime-50 border-2 border-lime-400 text-black font-bold px-8 py-6 text-base">
                   See How It Works
                   <ArrowRight className="w-5 h-5 ml-2" />

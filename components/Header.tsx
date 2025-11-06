@@ -81,7 +81,7 @@ export default function Header() {
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 group ml-5">
               <span className="text-2xl font-bold text-black">
-                WetBuddy
+                WOOFY
               </span>
             </Link>
 
