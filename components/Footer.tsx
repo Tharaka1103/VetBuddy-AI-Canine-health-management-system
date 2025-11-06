@@ -88,33 +88,19 @@ export default function Footer() {
     <footer className="bg-card border-t border-primary/10">
 
       {/* Main Footer Content */}
-      <div className="container mx-auto px-4 py-16">
+      <div className="container mx-auto px-4 py-8  backdrop-blur-sm">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8 lg:gap-12">
           {/* Brand Column */}
           <div className="col-span-2 md:col-span-3 lg:col-span-2">
-            <Link href="/" className="flex items-center gap-2 mb-4">
-              <div className="w-12 h-12 bg-primary rounded-lg flex items-center justify-center">
-                <Heart className="w-7 h-7 text-white fill-white" />
-              </div>
-              <span className="text-2xl font-bold text-text">
-                Paw<span className="text-primary">Health</span>
+            <Link href="/" className="flex items-center gap-2">
+              <span className="text-[8vw] font-bold text-text">
+                WOOFY
               </span>
             </Link>
-            <p className="text-text/70 mb-6 leading-relaxed">
+            <p className="text-text/70 mb-3 leading-relaxed">
               Your trusted partner in canine health. Powered by AI to help you keep your furry friend healthy, happy, and thriving.
             </p>
 
-            {/* Trust Badges */}
-            <div className="space-y-3 mb-6">
-              {trustBadges.map((badge, index) => (
-                <div key={index} className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-accent/10 rounded-lg flex items-center justify-center">
-                    <badge.icon className="w-4 h-4 text-accent" />
-                  </div>
-                  <span className="text-sm font-medium text-text">{badge.text}</span>
-                </div>
-              ))}
-            </div>
 
             {/* Social Links */}
             <div className="flex items-center gap-3">
@@ -207,7 +193,7 @@ export default function Footer() {
         </div>
 
         {/* Contact Information */}
-        <div className="mt-12 pt-8 border-t border-primary/10">
+        <div className="mt-12 pt-8">
           <div className="grid md:grid-cols-3 gap-6">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -249,7 +235,7 @@ export default function Footer() {
       </div>
 
       {/* Bottom Bar */}
-      <div className="bg-white border-t border-primary/10">
+      <div className="bg-white">
         <div className="container mx-auto px-4 py-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-text/60 text-sm text-center md:text-left">
