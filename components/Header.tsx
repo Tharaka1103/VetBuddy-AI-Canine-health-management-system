@@ -80,8 +80,8 @@ export default function Header() {
         }`}>
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 group ml-5">
-              <span className="text-2xl font-bold text-text">
-                Paw<span className="text-primary">Health</span>
+              <span className="text-2xl font-bold text-black">
+                WetBuddy
               </span>
             </Link>
 
@@ -96,7 +96,7 @@ export default function Header() {
                 >
                   <Link
                     href={item.href}
-                    className="flex items-center gap-1 text-text hover:text-primary font-medium transition-colors"
+                    className="flex items-center gap-1 text-black hover:text-primary font-medium transition-colors"
                   >
                     {item.name}
                     {item.dropdown && (
@@ -139,7 +139,7 @@ export default function Header() {
             <div className="hidden lg:flex items-center gap-4">
               <Link
                 href="/signin"
-                className="flex bg-accent rounded-full items-center gap-2 px-4 py-2 text-black hover:text-black font-medium transition-colors"
+                className="flex bg-lime-400/50 rounded-r-full items-center gap-2 px-4 py-2 text-black hover:text-black font-medium transition-colors"
               >
                 <LogIn className="w-4 h-4" />
                 Sign In
