@@ -14,7 +14,7 @@ export async function GET(request: NextRequest) {
 
     await connectDB()
 
-    const dogs = await Dog.find({ ownerId: session.user.id }).sort({ createdAt: -1 })
+    const dogs = await Dog.find({ ownerId: (session.user as any).id }).sort({ createdAt: -1 })
 
     return NextResponse.json({ dogs })
   } catch (error) {
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
     }
 
     const dog = await Dog.create({
-      ownerId: session.user.id,
+      ownerId: (session.user as any).id,
       name,
       heartBeatRate: Number(heartBeatRate),
       isHealthy: Boolean(isHealthy),

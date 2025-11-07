@@ -21,7 +21,7 @@ export async function GET(
 
     const dog = await Dog.findOne({
       _id: id,
-      ownerId: session.user.id
+      ownerId: (session.user as any).id
     })
 
     if (!dog) {
@@ -63,7 +63,7 @@ export async function PUT(
     const dog = await Dog.findOneAndUpdate(
       {
         _id: id,
-        ownerId: session.user.id
+        ownerId: (session.user as any).id
       },
       updateData,
       { new: true, runValidators: true }
@@ -100,7 +100,7 @@ export async function DELETE(
 
     const dog = await Dog.findOneAndDelete({
       _id: id,
-      ownerId: session.user.id
+      ownerId: (session.user as any).id
     })
 
     if (!dog) {
