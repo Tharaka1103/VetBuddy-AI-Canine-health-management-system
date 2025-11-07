@@ -45,6 +45,7 @@ export default function SignInPage() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
+        // Redirect will be handled by the useEffect in dashboard page
         router.push("/dashboard");
       }
     } catch (err) {

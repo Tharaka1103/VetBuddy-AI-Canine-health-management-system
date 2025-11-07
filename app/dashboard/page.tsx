@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -28,64 +29,81 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
-// Mock data for dogs
-const mockDogs = [
-  {
-    id: "1",
-    name: "Max",
-    breed: "Golden Retriever",
-    age: "3 years",
-    weight: "32 kg",
-    image: "/roy.jpg",
-    healthScore: 95,
-    nextVaccination: "Dec 15, 2024",
-    lastCheckup: "Nov 1, 2024",
-    status: "healthy",
-  },
-  {
-    id: "2",
-    name: "Luna",
-    breed: "Siberian Husky",
-    age: "2 years",
-    weight: "24 kg",
-    image: "/max.jpg",
-    healthScore: 88,
-    nextVaccination: "Jan 10, 2025",
-    lastCheckup: "Oct 20, 2024",
-    status: "healthy",
-  },
-  {
-    id: "3",
-    name: "Charlie",
-    breed: "Beagle",
-    age: "5 years",
-    weight: "15 kg",
-    image: "/rony.jpg",
-    healthScore: 78,
-    nextVaccination: "Dec 5, 2024",
-    lastCheckup: "Nov 10, 2024",
-    status: "needs-attention",
-  },
-];
+interface Dog {
+  _id: string;
+  name: string;
+  heartBeatRate: number;
+  isHealthy: boolean;
+  dailyActivityLevel: "low" | "medium" | "high";
+  dailyWalkDistance: number;
+  age: number;
+  weight: number;
+  sex: "male" | "female";
+  diet: string;
+  medications: string[];
+  seizures: boolean;
+  hoursOfSleep: number;
+  annualVetVisits: number;
+  averageTemperature: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const createDogSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
-  breed: z.string().min(2, "Breed must be at least 2 characters"),
-  age: z.string().min(1, "Age is required"),
-  weight: z.string().min(1, "Weight is required"),
-  gender: z.enum(["male", "female"], { required_error: "Gender is required" }),
-  birthday: z.string().min(1, "Birthday is required"),
-  color: z.string().min(2, "Color is required"),
-  microchipId: z.string().optional(),
+  heartBeatRate: z.number().min(0, "Heart beat rate must be positive"),
+  isHealthy: z.boolean(),
+  dailyActivityLevel: z.enum(["low", "medium", "high"]),
+  dailyWalkDistance: z.number().min(0, "Walk distance must be positive"),
+  age: z.number().min(0, "Age must be positive"),
+  weight: z.number().min(0, "Weight must be positive"),
+  sex: z.enum(["male", "female"]),
+  diet: z.string().min(1, "Diet is required"),
+  medications: z.array(z.string()).optional(),
+  seizures: z.boolean(),
+  hoursOfSleep: z.number().min(0).max(24),
+  annualVetVisits: z.number().min(0),
+  averageTemperature: z.number().min(90).max(110),
 });
 
 type CreateDogFormData = z.infer<typeof createDogSchema>;
 
 export default function DashboardPage() {
+  const { data: session, status } = useSession();
+  const [dogs, setDogs] = useState<Dog[]>([]);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    if (status === "loading") return;
+    if (!session) {
+      router.push("/signin");
+      return;
+    }
+
+    // Redirect based on role
+    if ((session.user as any).role === "admin") {
+      router.push("/admin/dashboard");
+      return;
+    }
+
+    fetchDogs();
+  }, [session, status, router]);
+
+  const fetchDogs = async () => {
+    try {
+      const response = await fetch("/api/dogs");
+      if (response.ok) {
+        const data = await response.json();
+        setDogs(data.dogs);
+      }
+    } catch (error) {
+      console.error("Error fetching dogs:", error);
+    }
+  };
 
   const {
     register,
@@ -97,14 +115,30 @@ export default function DashboardPage() {
   });
 
   const onSubmit = async (data: CreateDogFormData) => {
-    setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    console.log("New dog data:", data);
-    setIsLoading(false);
-    setShowCreateModal(false);
-    reset();
-    setSelectedImage(null);
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/dogs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (response.ok) {
+        await fetchDogs();
+        setShowCreateModal(false);
+        reset();
+        setSelectedImage(null);
+      } else {
+        const errorData = await response.json();
+        console.error("Error creating dog:", errorData.error);
+      }
+    } catch (error) {
+      console.error("Error creating dog:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -186,7 +220,7 @@ export default function DashboardPage() {
               <PawPrint className="w-8 h-8" />
               <TrendingUp className="w-6 h-6 opacity-70" />
             </div>
-            <div className="text-3xl font-black mb-1">{mockDogs.length}</div>
+            <div className="text-3xl font-black mb-1">{dogs.length}</div>
             <div className="text-sm opacity-90">Total Buddies</div>
           </motion.div>
 
@@ -198,7 +232,7 @@ export default function DashboardPage() {
               <Heart className="w-8 h-8" />
               <CheckCircle2 className="w-6 h-6 opacity-70" />
             </div>
-            <div className="text-3xl font-black mb-1">2</div>
+            <div className="text-3xl font-black mb-1">{dogs.filter(dog => dog.isHealthy).length}</div>
             <div className="text-sm opacity-90">Healthy Dogs</div>
           </motion.div>
 
@@ -245,26 +279,23 @@ export default function DashboardPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {mockDogs.map((dog, index) => (
+            {dogs.map((dog: Dog, index: number) => (
               <motion.div
-                key={dog.id}
+                key={dog._id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
                 whileHover={{ y: -10 }}
               >
-                <Link href={`/dashboard/buddy/${dog.id}`}>
-                  <div className="bg-white border-2 border-gray-200 rounded-sm overflow-hidden hover:border-green-500 hover:shadow-xl transition-all cursor-pointer">
+                <Link href={`/dashboard/buddy/${dog._id}`}>
+                  <div className="bg-lime-200/20 backdrop-blur-md border-2 border-lime-400 rounded-sm overflow-hidden hover:border-green-500 hover:shadow-xl transition-all cursor-pointer">
                     {/* Dog Image */}
-                    <div className="relative h-48 bg-gradient-to-br from-green-100 to-green-200">
-                      <Image
-                        src={dog.image}
-                        alt={dog.name}
-                        fill
-                        className="object-cover"
-                      />
+                    <div className="relative h-48 bg-lime-400/50">
+                      <div className="flex items-center justify-center h-full">
+                        <PawPrint className="w-16 h-16 text-green-500" />
+                      </div>
                       <div className="absolute top-4 right-4">
-                        {getStatusBadge(dog.status)}
+                        {getStatusBadge(dog.isHealthy ? "healthy" : "needs-attention")}
                       </div>
                     </div>
 
@@ -275,15 +306,15 @@ export default function DashboardPage() {
                           <h3 className="text-2xl font-bold text-gray-900 mb-1">
                             {dog.name}
                           </h3>
-                          <p className="text-sm text-gray-600">{dog.breed}</p>
+                          <p className="text-sm text-gray-600">{dog.sex} • {dog.age} years old</p>
                         </div>
                         <div className="text-right">
                           <div
                             className={`text-3xl font-black ${getHealthScoreColor(
-                              dog.healthScore
+                              dog.isHealthy ? 95 : 75
                             )}`}
                           >
-                            {dog.healthScore}
+                            {dog.isHealthy ? 95 : 75}
                           </div>
                           <div className="text-xs text-gray-500">
                             Health Score
@@ -293,17 +324,17 @@ export default function DashboardPage() {
 
                       <div className="space-y-3">
                         <div className="flex items-center gap-3 text-sm">
-                          <Cake className="w-4 h-4 text-gray-400" />
-                          <span className="text-gray-700">{dog.age} old</span>
+                          <Activity className="w-4 h-4 text-gray-400" />
+                          <span className="text-gray-700">Activity: {dog.dailyActivityLevel}</span>
                         </div>
                         <div className="flex items-center gap-3 text-sm">
                           <Weight className="w-4 h-4 text-gray-400" />
-                          <span className="text-gray-700">{dog.weight}</span>
+                          <span className="text-gray-700">{dog.weight} lbs</span>
                         </div>
                         <div className="flex items-center gap-3 text-sm">
-                          <Calendar className="w-4 h-4 text-gray-400" />
+                          <Heart className="w-4 h-4 text-gray-400" />
                           <span className="text-gray-700">
-                            Next vaccine: {dog.nextVaccination}
+                            Heart Rate: {dog.heartBeatRate} bpm
                           </span>
                         </div>
                       </div>
@@ -321,14 +352,14 @@ export default function DashboardPage() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: mockDogs.length * 0.1 }}
+              transition={{ delay: dogs.length * 0.1 }}
               whileHover={{ y: -10 }}
               onClick={() => setShowCreateModal(true)}
-              className="bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-dashed border-gray-300 rounded-sm flex items-center justify-center cursor-pointer hover:border-green-500 hover:from-green-50 hover:to-green-100 transition-all min-h-[400px]"
+              className="bg-lime-200/10 border-2 border-dashed backdrop-blur-xl border-lime-400 rounded-sm flex items-center justify-center cursor-pointer hover:border-green-500 hover:from-green-50 hover:to-green-100 transition-all min-h-[400px]"
             >
               <div className="text-center p-8">
                 <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full shadow-lg mb-4">
-                  <Plus className="w-8 h-8 text-green-500" />
+                  <Plus className="w-8 h-8 text-lime-500" />
                 </div>
                 <h3 className="text-xl font-bold text-gray-900 mb-2">
                   Add New Buddy
@@ -419,9 +450,8 @@ export default function DashboardPage() {
                     <input
                       {...register("name")}
                       type="text"
-                      className={`w-full px-4 py-2.5 border ${
-                        errors.name ? "border-red-300" : "border-gray-300"
-                      } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      className={`w-full px-4 py-2.5 border ${errors.name ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                       placeholder="e.g., Max"
                     />
                     {errors.name && (
@@ -433,19 +463,76 @@ export default function DashboardPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Breed *
+                      Heart Beat Rate *
                     </label>
                     <input
-                      {...register("breed")}
-                      type="text"
-                      className={`w-full px-4 py-2.5 border ${
-                        errors.breed ? "border-red-300" : "border-gray-300"
-                      } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
-                      placeholder="e.g., Golden Retriever"
+                      {...register("heartBeatRate", { valueAsNumber: true })}
+                      type="number"
+                      className={`w-full px-4 py-2.5 border ${errors.heartBeatRate ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., 80"
                     />
-                    {errors.breed && (
+                    {errors.heartBeatRate && (
                       <p className="mt-1 text-xs text-red-600">
-                        {errors.breed.message}
+                        {errors.heartBeatRate.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Is Healthy *
+                    </label>
+                    <select
+                      {...register("isHealthy", { setValueAs: (value) => value === "true" })}
+                      className={`w-full px-4 py-2.5 border ${errors.isHealthy ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                    >
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                    {errors.isHealthy && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {errors.isHealthy.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Daily Activity Level *
+                    </label>
+                    <select
+                      {...register("dailyActivityLevel")}
+                      className={`w-full px-4 py-2.5 border ${errors.dailyActivityLevel ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                    {errors.dailyActivityLevel && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {errors.dailyActivityLevel.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Daily Walk Distance (miles) *
+                    </label>
+                    <input
+                      {...register("dailyWalkDistance", { valueAsNumber: true })}
+                      type="number"
+                      step="0.1"
+                      className={`w-full px-4 py-2.5 border ${errors.dailyWalkDistance ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., 2.5"
+                    />
+                    {errors.dailyWalkDistance && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {errors.dailyWalkDistance.message}
                       </p>
                     )}
                   </div>
@@ -455,12 +542,11 @@ export default function DashboardPage() {
                       Age *
                     </label>
                     <input
-                      {...register("age")}
-                      type="text"
-                      className={`w-full px-4 py-2.5 border ${
-                        errors.age ? "border-red-300" : "border-gray-300"
-                      } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
-                      placeholder="e.g., 3 years"
+                      {...register("age", { valueAsNumber: true })}
+                      type="number"
+                      className={`w-full px-4 py-2.5 border ${errors.age ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., 3"
                     />
                     {errors.age && (
                       <p className="mt-1 text-xs text-red-600">
@@ -471,15 +557,15 @@ export default function DashboardPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Weight *
+                      Weight (lbs) *
                     </label>
                     <input
-                      {...register("weight")}
-                      type="text"
-                      className={`w-full px-4 py-2.5 border ${
-                        errors.weight ? "border-red-300" : "border-gray-300"
-                      } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
-                      placeholder="e.g., 25 kg"
+                      {...register("weight", { valueAsNumber: true })}
+                      type="number"
+                      step="0.1"
+                      className={`w-full px-4 py-2.5 border ${errors.weight ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., 25.5"
                     />
                     {errors.weight && (
                       <p className="mt-1 text-xs text-red-600">
@@ -490,72 +576,112 @@ export default function DashboardPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Gender *
+                      Sex *
                     </label>
                     <select
-                      {...register("gender")}
-                      className={`w-full px-4 py-2.5 border ${
-                        errors.gender ? "border-red-300" : "border-gray-300"
-                      } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      {...register("sex")}
+                      className={`w-full px-4 py-2.5 border ${errors.sex ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
                     >
-                      <option value="">Select gender</option>
                       <option value="male">Male</option>
                       <option value="female">Female</option>
                     </select>
-                    {errors.gender && (
+                    {errors.sex && (
                       <p className="mt-1 text-xs text-red-600">
-                        {errors.gender.message}
+                        {errors.sex.message}
                       </p>
                     )}
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Birthday *
+                      Diet *
                     </label>
                     <input
-                      {...register("birthday")}
-                      type="date"
-                      className={`w-full px-4 py-2.5 border ${
-                        errors.birthday ? "border-red-300" : "border-gray-300"
-                      } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
-                    />
-                    {errors.birthday && (
-                      <p className="mt-1 text-xs text-red-600">
-                        {errors.birthday.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Color *
-                    </label>
-                    <input
-                      {...register("color")}
+                      {...register("diet")}
                       type="text"
-                      className={`w-full px-4 py-2.5 border ${
-                        errors.color ? "border-red-300" : "border-gray-300"
-                      } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
-                      placeholder="e.g., Golden"
+                      className={`w-full px-4 py-2.5 border ${errors.diet ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., Dry kibble"
                     />
-                    {errors.color && (
+                    {errors.diet && (
                       <p className="mt-1 text-xs text-red-600">
-                        {errors.color.message}
+                        {errors.diet.message}
                       </p>
                     )}
                   </div>
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Microchip ID (Optional)
+                      Hours of Sleep *
                     </label>
                     <input
-                      {...register("microchipId")}
-                      type="text"
-                      className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
-                      placeholder="e.g., 123456789"
+                      {...register("hoursOfSleep", { valueAsNumber: true })}
+                      type="number"
+                      step="0.5"
+                      max="24"
+                      className={`w-full px-4 py-2.5 border ${errors.hoursOfSleep ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., 12"
                     />
+                    {errors.hoursOfSleep && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {errors.hoursOfSleep.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Annual Vet Visits *
+                    </label>
+                    <input
+                      {...register("annualVetVisits", { valueAsNumber: true })}
+                      type="number"
+                      className={`w-full px-4 py-2.5 border ${errors.annualVetVisits ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., 2"
+                    />
+                    {errors.annualVetVisits && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {errors.annualVetVisits.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Average Temperature (F) *
+                    </label>
+                    <input
+                      {...register("averageTemperature", { valueAsNumber: true })}
+                      type="number"
+                      step="0.1"
+                      min="90"
+                      max="110"
+                      className={`w-full px-4 py-2.5 border ${errors.averageTemperature ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                      placeholder="e.g., 98.6"
+                    />
+                    {errors.averageTemperature && (
+                      <p className="mt-1 text-xs text-red-600">
+                        {errors.averageTemperature.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Seizures
+                    </label>
+                    <select
+                      {...register("seizures", { setValueAs: (value) => value === "true" })}
+                      className={`w-full px-4 py-2.5 border ${errors.seizures ? "border-red-300" : "border-gray-300"
+                        } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                    >
+                      <option value="false">No</option>
+                      <option value="true">Yes</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -569,16 +695,16 @@ export default function DashboardPage() {
                     reset();
                     setSelectedImage(null);
                   }}
-                  className="flex-1 px-6 py-3 border-2 border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-6 py-2 border-2 border-gray-300 text-gray-700 font-semibold rounded-sm hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isLoading}
-                  className="flex-1 px-6 py-3 bg-gradient-to-r from-green-400 to-green-500 text-white font-semibold rounded-lg shadow-lg shadow-green-500/50 hover:shadow-green-500/70 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  disabled={isSubmitting}
+                  className="flex-1 px-6 py-2 bg-lime-400/50 text-black font-semibold rounded-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 >
-                  {isLoading ? (
+                  {isSubmitting ? (
                     <span className="flex items-center justify-center">
                       <Loader2 className="animate-spin h-5 w-5 mr-2" />
                       Creating...

@@ -4,21 +4,27 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
-import { 
-  Menu, 
-  X, 
+import { useSession, signOut } from "next-auth/react"
+import {
+  Menu,
+  X,
   ChevronDown,
   Heart,
   LogIn,
   UserPlus,
   Phone,
-  Mail
+  Mail,
+  User,
+  Settings,
+  LogOut
 } from "lucide-react"
 
 export default function Header() {
+  const { data: session, status } = useSession()
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null)
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false)
 
   useEffect(() => {
     const handleScroll = () => {
@@ -35,6 +41,19 @@ export default function Header() {
       document.body.style.overflow = 'unset'
     }
   }, [isMobileMenuOpen])
+
+  // Close user dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element
+      if (userDropdownOpen && !target.closest('.user-dropdown')) {
+        setUserDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [userDropdownOpen])
 
   const navigation = [
     {
@@ -137,13 +156,54 @@ export default function Header() {
 
             {/* CTA Buttons */}
             <div className="hidden lg:flex items-center gap-4">
-              <Link
-                href="/signin"
-                className="flex bg-lime-400/50 rounded-r-full items-center gap-2 px-4 py-2 text-black hover:text-black font-medium transition-colors"
-              >
-                <LogIn className="w-4 h-4" />
-                Sign In
-              </Link>
+              {session ? (
+                <div className="relative user-dropdown">
+                  <button
+                    onClick={() => setUserDropdownOpen(!userDropdownOpen)}
+                    className="flex items-center gap-2 px-4 py-2 text-black hover:text-black font-medium transition-colors"
+                  >
+                    <User className="w-4 h-4" />
+                    {session.user?.name || session.user?.email}
+                    <ChevronDown className={`w-4 h-4 transition-transform ${userDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {userDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 10 }}
+                      className="absolute right-0 mt-2 w-48 bg-white rounded-sm shadow-xl border border-primary/10 overflow-hidden z-50"
+                    >
+                      <Link
+                        href="/dashboard"
+                        className="flex items-center gap-3 px-4 py-3 bg-lime-200/20 text-black transition-colors"
+                        onClick={() => setUserDropdownOpen(false)}
+                      >
+                        <User className="w-4 h-4" />
+                        <span>Dashboard</span>
+                      </Link>
+                      <button
+                        onClick={() => {
+                          signOut({ callbackUrl: "/" })
+                          setUserDropdownOpen(false)
+                        }}
+                        className="flex items-center gap-3 px-4 py-3 bg-red-500 text-white w-full text-left transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        <span>Logout</span>
+                      </button>
+                    </motion.div>
+                  )}
+                </div>
+              ) : (
+                <Link
+                  href="/signin"
+                  className="flex bg-lime-400/50 rounded-r-full items-center gap-2 px-4 py-2 text-black hover:text-black font-medium transition-colors"
+                >
+                  <LogIn className="w-4 h-4" />
+                  Sign In
+                </Link>
+              )}
             </div>
 
             {/* Mobile Menu Button */}

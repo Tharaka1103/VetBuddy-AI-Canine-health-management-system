@@ -5,6 +5,7 @@ import "./globals.css"
 import Header from "@/components/Header"
 import Footer from "@/components/Footer"
 import { usePathname } from "next/navigation"
+import { SessionProvider } from "next-auth/react"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -21,13 +22,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <div className="min-h-screen flex flex-col">
-          {!isAuthPage && <Header />}
-          <main >
-            {children}
-          </main>
-          {!isAuthPage && <Footer />}
-        </div>
+        <SessionProvider>
+          <div className="min-h-screen flex flex-col">
+            {!isAuthPage && <Header />}
+            <main >
+              {children}
+            </main>
+            {!isAuthPage && <Footer />}
+          </div>
+        </SessionProvider>
       </body>
     </html>
   )

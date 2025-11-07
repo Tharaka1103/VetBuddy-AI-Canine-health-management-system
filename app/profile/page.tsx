@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,51 +28,189 @@ import {
   PawPrint,
   Calendar,
   Award,
+  AlertTriangle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const profileSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email address"),
-  phone: z.string().min(10, "Phone number must be at least 10 digits"),
-  address: z.string().min(5, "Address is required"),
-  city: z.string().min(2, "City is required"),
-  country: z.string().min(2, "Country is required"),
-  bio: z.string().max(500, "Bio must be less than 500 characters").optional(),
+});
+
+const passwordSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(6, "New password must be at least 6 characters"),
+  confirmPassword: z.string().min(1, "Please confirm your new password"),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ["confirmPassword"],
 });
 
 type ProfileFormData = z.infer<typeof profileSchema>;
+type PasswordFormData = z.infer<typeof passwordSchema>;
+
+interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function ProfilePage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showPasswordForm, setShowPasswordForm] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("profile");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   const {
-    register,
-    handleSubmit,
-    formState: { errors },
+    register: registerProfile,
+    handleSubmit: handleSubmitProfile,
+    reset: resetProfile,
+    formState: { errors: profileErrors },
   } = useForm<ProfileFormData>({
     resolver: zodResolver(profileSchema),
-    defaultValues: {
-      name: "John Doe",
-      email: "john.doe@example.com",
-      phone: "+1 234 567 8900",
-      address: "123 Main Street, Apt 4B",
-      city: "New York",
-      country: "United States",
-      bio: "Dog lover and proud owner of 3 amazing buddies! 🐕",
-    },
   });
 
-  const onSubmit = async (data: ProfileFormData) => {
-    setIsLoading(true);
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    console.log("Profile data:", data);
-    setIsLoading(false);
-    setIsEditing(false);
+  const {
+    register: registerPassword,
+    handleSubmit: handleSubmitPassword,
+    reset: resetPassword,
+    formState: { errors: passwordErrors },
+  } = useForm<PasswordFormData>({
+    resolver: zodResolver(passwordSchema),
+  });
+
+  useEffect(() => {
+    if (status === "loading") return;
+    if (!session) {
+      router.push("/signin");
+      return;
+    }
+    fetchUserProfile();
+  }, [session, status, router]);
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await fetch("/api/user/profile");
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+        resetProfile({
+          name: data.user.name,
+          email: data.user.email,
+        });
+      }
+    } catch (error) {
+      console.error("Error fetching user profile:", error);
+      setErrorMessage("Failed to load user profile");
+    }
   };
+
+  const onSubmitProfile = async (data: ProfileFormData) => {
+    setIsLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch("/api/user/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to update profile");
+      }
+
+      setUser(result.user);
+      setSuccessMessage("Profile updated successfully!");
+      setIsEditing(false);
+      resetProfile(data);
+    } catch (error: any) {
+      setErrorMessage(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onSubmitPassword = async (data: PasswordFormData) => {
+    setIsLoading(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const response = await fetch("/api/user/change-password", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          currentPassword: data.currentPassword,
+          newPassword: data.newPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to change password");
+      }
+
+      setSuccessMessage("Password changed successfully!");
+      setShowPasswordForm(false);
+      resetPassword();
+    } catch (error: any) {
+      setErrorMessage(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    setIsDeleting(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/user/profile", {
+        method: "DELETE",
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || "Failed to delete account");
+      }
+
+      // Sign out and redirect
+      await signOut({ callbackUrl: "/" });
+    } catch (error: any) {
+      setErrorMessage(error.message);
+      setIsDeleting(false);
+      setShowConfirmDelete(false);
+    }
+  };
+
+  if (status === "loading" || !user) {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <Loader2 className="animate-spin h-8 w-8 text-green-500" />
+      </div>
+    );
+  }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -83,11 +223,12 @@ export default function ProfilePage() {
     }
   };
 
+  // Calculate stats based on user data
   const userStats = {
-    dogsOwned: 3,
-    memberSince: "January 2024",
-    totalCheckups: 12,
-    vaccinesCompleted: 18,
+    accountType: user?.role === "admin" ? "Administrator" : user?.role === "doctor" ? "Doctor" : "User",
+    memberSince: user ? new Date(user.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : "",
+    lastUpdated: user ? new Date(user.updatedAt).toLocaleDateString() : "",
+    emailVerified: true, // Assuming email is verified for now
   };
 
   return (
@@ -111,14 +252,30 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="relative z-10 max-w-5xl mx-auto px-4 py-8">
-        {/* Profile Header */}
+      {/* Success/Error Messages */}
+        {(successMessage || errorMessage) && (
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-lime-400/20 backdrop-blur-sm border-2 border-lime-400 rounded-sm p-8 mb-8 shadow-2xl shadow-green-500/20"
-        >
+          initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -10 }}
+        className={`mb-6 p-4 rounded-lg ${
+            successMessage ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"
+            }`}
+          >
+            <p className={`text-sm ${successMessage ? "text-green-600" : "text-red-600"} text-center`}>
+              {successMessage || errorMessage}
+            </p>
+          </motion.div>
+        )}
+
+        {/* Main Content */}
+        <div className="relative z-10 max-w-5xl mx-auto px-4 py-8">
+          {/* Profile Header */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-lime-400/20 backdrop-blur-sm border-2 border-lime-400 rounded-sm p-8 mb-8 shadow-2xl shadow-green-500/20"
+          >
           <div className="flex flex-col md:flex-row gap-8 items-center md:items-start">
             {/* Profile Picture */}
             <div className="relative">
@@ -150,13 +307,15 @@ export default function ProfilePage() {
             {/* User Info */}
             <div className="flex-1 text-center md:text-left text-black">
               <h1 className="text-3xl md:text-4xl font-black mb-2">
-                John Doe
+                {user.name}
               </h1>
               <p className="text-lg opacity-90 mb-4">
-                Dog Parent • Health Enthusiast
+                {user.role === "admin" ? "Administrator" : user.role === "doctor" ? "Veterinarian" : "Dog Parent"}
+                {" • "}
+                Member since {new Date(user.createdAt).toLocaleDateString()}
               </p>
               <p className="opacity-90 max-w-2xl">
-                Dog lover and proud owner of 3 amazing buddies! 🐕
+                Email: {user.email}
               </p>
             </div>
 
@@ -173,26 +332,24 @@ export default function ProfilePage() {
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8">
             <div className=" rounded-lg p-4 text-center">
-              <PawPrint className="w-6 h-6 mx-auto mb-2" />
-              <div className="text-2xl font-black">{userStats.dogsOwned}</div>
-              <div className="text-sm opacity-75">Dogs Owned</div>
+              <User className="w-6 h-6 mx-auto mb-2" />
+              <div className="text-lg font-black">{userStats.accountType}</div>
+              <div className="text-sm opacity-75">Account Type</div>
             </div>
             <div className=" rounded-lg p-4 text-center">
               <Calendar className="w-6 h-6 mx-auto mb-2" />
-              <div className="text-2xl font-black">{userStats.totalCheckups}</div>
-              <div className="text-sm opacity-75">Total Checkups</div>
-            </div>
-            <div className=" rounded-lg p-4 text-center">
-              <Award className="w-6 h-6 mx-auto mb-2" />
-              <div className="text-2xl font-black">
-                {userStats.vaccinesCompleted}
-              </div>
-              <div className="text-sm opacity-75">Vaccines Done</div>
+              <div className="text-sm font-black">{userStats.memberSince}</div>
+              <div className="text-sm opacity-75">Member Since</div>
             </div>
             <div className=" rounded-lg p-4 text-center">
               <CheckCircle2 className="w-6 h-6 mx-auto mb-2" />
-              <div className="text-lg font-black">{userStats.memberSince}</div>
-              <div className="text-sm opacity-75">Member Since</div>
+              <div className="text-sm font-black">{userStats.lastUpdated}</div>
+              <div className="text-sm opacity-75">Last Updated</div>
+            </div>
+            <div className=" rounded-lg p-4 text-center">
+              <Mail className="w-6 h-6 mx-auto mb-2" />
+              <div className="text-lg font-black">{userStats.emailVerified ? "Yes" : "No"}</div>
+              <div className="text-sm opacity-75">Email Verified</div>
             </div>
           </div>
         </motion.div>
@@ -230,22 +387,22 @@ export default function ProfilePage() {
               Personal Information
             </h2>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={handleSubmitProfile(onSubmitProfile)} className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Full Name *
                   </label>
                   <input
-                    {...register("name")}
+                    {...registerProfile("name")}
                     disabled={!isEditing}
                     className={`w-full px-4 py-3 border ${
-                      errors.name ? "border-red-300" : "border-gray-300"
+                      profileErrors.name ? "border-red-300" : "border-gray-300"
                     } rounded-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all disabled:bg-gray-50 disabled:text-gray-500`}
                   />
-                  {errors.name && (
+                  {profileErrors.name && (
                     <p className="mt-1 text-xs text-red-600">
-                      {errors.name.message}
+                      {profileErrors.name.message}
                     </p>
                   )}
                 </div>
@@ -255,110 +412,18 @@ export default function ProfilePage() {
                     Email Address *
                   </label>
                   <input
-                    {...register("email")}
+                    {...registerProfile("email")}
                     disabled={!isEditing}
                     className={`w-full px-4 py-3 border ${
-                      errors.email ? "border-red-300" : "border-gray-300"
+                      profileErrors.email ? "border-red-300" : "border-gray-300"
                     } rounded-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all disabled:bg-gray-50 disabled:text-gray-500`}
                   />
-                  {errors.email && (
+                  {profileErrors.email && (
                     <p className="mt-1 text-xs text-red-600">
-                      {errors.email.message}
+                      {profileErrors.email.message}
                     </p>
                   )}
                 </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Phone Number *
-                  </label>
-                  <input
-                    {...register("phone")}
-                    disabled={!isEditing}
-                    className={`w-full px-4 py-3 border ${
-                      errors.phone ? "border-red-300" : "border-gray-300"
-                    } rounded-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all disabled:bg-gray-50 disabled:text-gray-500`}
-                  />
-                  {errors.phone && (
-                    <p className="mt-1 text-xs text-red-600">
-                      {errors.phone.message}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Address *
-                  </label>
-                  <input
-                    {...register("address")}
-                    disabled={!isEditing}
-                    className={`w-full px-4 py-3 border ${
-                      errors.address ? "border-red-300" : "border-gray-300"
-                    } rounded-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all disabled:bg-gray-50 disabled:text-gray-500`}
-                  />
-                  {errors.address && (
-                    <p className="mt-1 text-xs text-red-600">
-                      {errors.address.message}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    City *
-                  </label>
-                  <input
-                    {...register("city")}
-                    disabled={!isEditing}
-                    className={`w-full px-4 py-3 border ${
-                      errors.city ? "border-red-300" : "border-gray-300"
-                    } rounded-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all disabled:bg-gray-50 disabled:text-gray-500`}
-                  />
-                  {errors.city && (
-                    <p className="mt-1 text-xs text-red-600">
-                      {errors.city.message}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Country *
-                  </label>
-                  <input
-                    {...register("country")}
-                    disabled={!isEditing}
-                    className={`w-full px-4 py-3 border ${
-                      errors.country ? "border-red-300" : "border-gray-300"
-                    } rounded-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all disabled:bg-gray-50 disabled:text-gray-500`}
-                  />
-                  {errors.country && (
-                    <p className="mt-1 text-xs text-red-600">
-                      {errors.country.message}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Bio
-                </label>
-                <textarea
-                  {...register("bio")}
-                  disabled={!isEditing}
-                  rows={4}
-                  className={`w-full px-4 py-3 border ${
-                    errors.bio ? "border-red-300" : "border-gray-300"
-                  } rounded-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all disabled:bg-gray-50 disabled:text-gray-500`}
-                  placeholder="Tell us about yourself and your love for dogs..."
-                />
-                {errors.bio && (
-                  <p className="mt-1 text-xs text-red-600">
-                    {errors.bio.message}
-                  </p>
-                )}
               </div>
 
               {isEditing && (
@@ -397,8 +462,9 @@ export default function ProfilePage() {
             </h2>
 
             <div className="space-y-6">
+              {/* Change Password Section */}
               <div className="p-6 bg-gray-50 rounded-sm border border-gray-200">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between mb-4">
                   <div className="flex items-start gap-4">
                     <div className="p-3 bg-green-100 rounded-lg">
                       <Key className="w-6 h-6 text-green-600" />
@@ -408,15 +474,115 @@ export default function ProfilePage() {
                         Change Password
                       </h3>
                       <p className="text-sm text-gray-600">
-                        Update your password regularly to keep your account
-                        secure
+                        Update your password regularly to keep your account secure
                       </p>
                     </div>
                   </div>
-                  <button className="px-4 py-2 bg-lime-400/50 hover:bg-lime-500 text-black font-semibold rounded-sm transition-colors">
-                    Update
+                  <button
+                    onClick={() => setShowPasswordForm(!showPasswordForm)}
+                    className="px-4 py-2 bg-lime-400/50 hover:bg-lime-500 text-black font-semibold rounded-sm transition-colors"
+                  >
+                    {showPasswordForm ? "Cancel" : "Update"}
                   </button>
                 </div>
+
+                {showPasswordForm && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-4 pt-4 border-t border-gray-200"
+                  >
+                    <form onSubmit={handleSubmitPassword(onSubmitPassword)} className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Current Password *
+                        </label>
+                        <input
+                          {...registerPassword("currentPassword")}
+                          type="password"
+                          className={`w-full px-4 py-2 border ${
+                            passwordErrors.currentPassword ? "border-red-300" : "border-gray-300"
+                          } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                          placeholder="Enter your current password"
+                        />
+                        {passwordErrors.currentPassword && (
+                          <p className="mt-1 text-xs text-red-600">
+                            {passwordErrors.currentPassword.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          New Password *
+                        </label>
+                        <input
+                          {...registerPassword("newPassword")}
+                          type="password"
+                          className={`w-full px-4 py-2 border ${
+                            passwordErrors.newPassword ? "border-red-300" : "border-gray-300"
+                          } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                          placeholder="Enter your new password"
+                        />
+                        {passwordErrors.newPassword && (
+                          <p className="mt-1 text-xs text-red-600">
+                            {passwordErrors.newPassword.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Confirm New Password *
+                        </label>
+                        <input
+                          {...registerPassword("confirmPassword")}
+                          type="password"
+                          className={`w-full px-4 py-2 border ${
+                            passwordErrors.confirmPassword ? "border-red-300" : "border-gray-300"
+                          } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                          placeholder="Confirm your new password"
+                        />
+                        {passwordErrors.confirmPassword && (
+                          <p className="mt-1 text-xs text-red-600">
+                            {passwordErrors.confirmPassword.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex gap-3">
+                        <button
+                          type="submit"
+                          disabled={isLoading}
+                          className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                        >
+                          {isLoading ? (
+                            <>
+                              <Loader2 className="animate-spin h-4 w-4" />
+                              Updating...
+                            </>
+                          ) : (
+                            <>
+                              <Key className="w-4 h-4" />
+                              Update Password
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowPasswordForm(false);
+                            resetPassword();
+                          }}
+                          className="px-4 py-2 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </form>
+                  </motion.div>
+                )}
               </div>
 
               <div className="p-6 bg-gray-50 rounded-sm border border-gray-200">
@@ -440,8 +606,9 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              {/* Delete Account Section */}
               <div className="p-6 bg-red-50 rounded-sm border border-red-200">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between mb-4">
                   <div className="flex items-start gap-4">
                     <div className="p-3 bg-red-100 rounded-lg">
                       <Trash2 className="w-6 h-6 text-red-600" />
@@ -451,14 +618,61 @@ export default function ProfilePage() {
                         Delete Account
                       </h3>
                       <p className="text-sm text-gray-600">
-                        Permanently delete your account and all data
+                        Permanently delete your account and all associated data
                       </p>
                     </div>
                   </div>
-                  <button className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-sm transition-colors">
+                  <button
+                    onClick={() => setShowConfirmDelete(true)}
+                    className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-sm transition-colors"
+                  >
                     Delete
                   </button>
                 </div>
+
+                {showConfirmDelete && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-4 pt-4 border-t border-red-200"
+                  >
+                    <div className="flex items-start gap-3 mb-4">
+                      <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5" />
+                      <div>
+                        <h4 className="font-bold text-red-900 mb-2">Are you sure?</h4>
+                        <p className="text-sm text-red-700 mb-4">
+                          This action cannot be undone. This will permanently delete your account and remove all your data from our servers.
+                        </p>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={deleteAccount}
+                            disabled={isDeleting}
+                            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                          >
+                            {isDeleting ? (
+                              <>
+                                <Loader2 className="animate-spin h-4 w-4" />
+                                Deleting...
+                              </>
+                            ) : (
+                              <>
+                                <Trash2 className="w-4 h-4" />
+                                Yes, Delete My Account
+                              </>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setShowConfirmDelete(false)}
+                            className="px-4 py-2 border border-gray-300 text-gray-700 font-semibold rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
               </div>
             </div>
           </motion.div>
