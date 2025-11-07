@@ -585,7 +585,7 @@ export default function BuddyProfilePage() {
     <div className="min-h-screen bg-white relative">
       {/* Fixed Background Text */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden z-0">
-        <h1 className="text-[10vw] md:text-[10vw] font-black text-lime-900/20 leading-none tracking-tighter">
+        <h1 className="text-[20vw] md:text-[15vw] font-black text-lime-900/20 leading-none tracking-tighter text-center">
           BUDDY'S BOARD
         </h1>
       </div>
