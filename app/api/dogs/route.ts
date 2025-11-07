@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const {
       name,
+      breed,
       heartBeatRate,
       isHealthy,
       dailyActivityLevel,
@@ -68,6 +69,7 @@ export async function POST(request: NextRequest) {
     const dog = await Dog.create({
       ownerId: (session.user as any).id,
       name,
+      breed,
       heartBeatRate: Number(heartBeatRate),
       isHealthy: Boolean(isHealthy),
       dailyActivityLevel,

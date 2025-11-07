@@ -32,6 +32,7 @@ import {
 interface Dog {
   _id: string;
   name: string;
+  breed?: string;
   heartBeatRate: number;
   isHealthy: boolean;
   dailyActivityLevel: "low" | "medium" | "high";
@@ -51,6 +52,7 @@ interface Dog {
 
 const createDogSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
+  breed: z.string().optional(),
   heartBeatRate: z.number().min(0, "Heart beat rate must be positive"),
   isHealthy: z.boolean(),
   dailyActivityLevel: z.enum(["low", "medium", "high"]),
@@ -71,6 +73,7 @@ type CreateDogFormData = z.infer<typeof createDogSchema>;
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const [dogs, setDogs] = useState<Dog[]>([]);
+  const [healthPredictions, setHealthPredictions] = useState<Record<string, string>>({});
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -99,6 +102,40 @@ export default function DashboardPage() {
       if (response.ok) {
         const data = await response.json();
         setDogs(data.dogs);
+        // Fetch health predictions for all dogs
+        const predictions: Record<string, string> = {};
+        await Promise.all(data.dogs.map(async (dog: Dog) => {
+          try {
+            const aiInput = {
+              'Daily Activity Level': dog.dailyActivityLevel,
+              'Daily Walk Distance (miles)': dog.dailyWalkDistance,
+              'Age': dog.age,
+              'Weight (lbs)': dog.weight,
+              'Breed': dog.breed || 'Unknown',
+              'Sex': dog.sex.charAt(0).toUpperCase() + dog.sex.slice(1),
+              'Diet': dog.diet,
+              'Medications': dog.medications.length > 0 ? 'Yes' : 'No',
+              'Seizures': dog.seizures ? 'Yes' : 'No',
+              'Hours of Sleep': dog.hoursOfSleep,
+              'Annual Vet Visits': dog.annualVetVisits,
+              'Average Temperature (F)': dog.averageTemperature,
+            };
+            const predResponse = await fetch('/api/check-health', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(aiInput),
+            });
+            if (predResponse.ok) {
+              const predData = await predResponse.json();
+              predictions[dog._id] = predData.prediction;
+            }
+          } catch (err) {
+            console.error('Error fetching prediction for dog:', dog._id, err);
+          }
+        }));
+        setHealthPredictions(predictions);
       }
     } catch (error) {
       console.error("Error fetching dogs:", error);
@@ -158,8 +195,8 @@ export default function DashboardPage() {
     return "text-red-500";
   };
 
-  const getStatusBadge = (status: string) => {
-    if (status === "healthy")
+  const getStatusBadge = (prediction: string | undefined) => {
+    if (prediction === "Healthy")
       return (
         <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
           Healthy
@@ -167,7 +204,7 @@ export default function DashboardPage() {
       );
     return (
       <span className="px-3 py-1 bg-yellow-100 text-yellow-700 text-xs font-semibold rounded-full">
-        Needs Attention
+        Not Healthy
       </span>
     );
   };
@@ -232,7 +269,7 @@ export default function DashboardPage() {
               <Heart className="w-8 h-8" />
               <CheckCircle2 className="w-6 h-6 opacity-70" />
             </div>
-            <div className="text-3xl font-black mb-1">{dogs.filter(dog => dog.isHealthy).length}</div>
+            <div className="text-3xl font-black mb-1">{dogs.filter(dog => healthPredictions[dog._id] === 'Healthy').length}</div>
             <div className="text-sm opacity-90">Healthy Dogs</div>
           </motion.div>
 
@@ -295,7 +332,7 @@ export default function DashboardPage() {
                         <PawPrint className="w-16 h-16 text-green-500" />
                       </div>
                       <div className="absolute top-4 right-4">
-                        {getStatusBadge(dog.isHealthy ? "healthy" : "needs-attention")}
+                      {getStatusBadge(healthPredictions[dog._id])}
                       </div>
                     </div>
 
@@ -309,16 +346,16 @@ export default function DashboardPage() {
                           <p className="text-sm text-gray-600">{dog.sex} • {dog.age} years old</p>
                         </div>
                         <div className="text-right">
-                          <div
-                            className={`text-3xl font-black ${getHealthScoreColor(
-                              dog.isHealthy ? 95 : 75
-                            )}`}
-                          >
-                            {dog.isHealthy ? 95 : 75}
-                          </div>
-                          <div className="text-xs text-gray-500">
-                            Health Score
-                          </div>
+                        <div
+                        className={`text-3xl font-black ${getHealthScoreColor(
+                        healthPredictions[dog._id] === 'Healthy' ? 95 : 75
+                        )}`}
+                        >
+                        {healthPredictions[dog._id] === 'Healthy' ? 95 : 75}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                        Health Score
+                        </div>
                         </div>
                       </div>
 
@@ -444,19 +481,37 @@ export default function DashboardPage() {
                 {/* Basic Info */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Name *
+                  </label>
+                  <input
+                  {...register("name")}
+                  type="text"
+                  className={`w-full px-4 py-2.5 border ${errors.name ? "border-red-300" : "border-gray-300"
+                  } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
+                  placeholder="e.g., Max"
+                  />
+                  {errors.name && (
+                  <p className="mt-1 text-xs text-red-600">
+                  {errors.name.message}
+                  </p>
+                  )}
+                  </div>
+
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Name *
+                      Breed
                     </label>
                     <input
-                      {...register("name")}
+                      {...register("breed")}
                       type="text"
-                      className={`w-full px-4 py-2.5 border ${errors.name ? "border-red-300" : "border-gray-300"
+                      className={`w-full px-4 py-2.5 border ${errors.breed ? "border-red-300" : "border-gray-300"
                         } rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all`}
-                      placeholder="e.g., Max"
+                      placeholder="e.g., Golden Retriever"
                     />
-                    {errors.name && (
+                    {errors.breed && (
                       <p className="mt-1 text-xs text-red-600">
-                        {errors.name.message}
+                        {errors.breed.message}
                       </p>
                     )}
                   </div>

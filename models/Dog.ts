@@ -3,6 +3,7 @@ import mongoose from "mongoose"
 export interface IDog extends mongoose.Document {
   ownerId: mongoose.Types.ObjectId
   name: string
+  breed?: string
   heartBeatRate: number
   isHealthy: boolean
   dailyActivityLevel: string
@@ -30,6 +31,11 @@ const DogSchema = new mongoose.Schema<IDog>(
     name: {
       type: String,
       required: true,
+      trim: true,
+    },
+    breed: {
+      type: String,
+      default: 'Unknown',
       trim: true,
     },
     heartBeatRate: {

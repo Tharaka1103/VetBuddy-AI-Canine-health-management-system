@@ -37,14 +37,30 @@ export async function POST(request: NextRequest) {
         'X-API-Key': pythonApiKey, // Add our secret key here
       },
       body: JSON.stringify(dogData),
+      cache: 'no-store', // Disable caching for this request
     });
 
     // 4. Handle Python API errors
     if (!response.ok) {
-      const errorData = await response.json();
-      console.error('Python API Error:', errorData);
+      let errorMessage = 'Error from prediction service';
+      
+      // Read the response body as text ONCE
+      const errorText = await response.text();
+      console.error('Raw error response from Python API:', errorText.substring(0, 500)); // Log the HTML
+
+      try {
+        // Now, try to parse the text as JSON
+        const errorData = JSON.parse(errorText);
+        errorMessage = errorData.message || errorMessage;
+      } catch (err) {
+        // This will catch the 'Unexpected token <'
+        console.error('Failed to parse error response as JSON. Response was likely HTML.');
+        errorMessage = 'Prediction service returned an invalid error page.';
+      }
+
+      console.error('Python API Error:', errorMessage);
       return NextResponse.json(
-        { message: errorData.message || 'Error from prediction service' },
+        { message: errorMessage },
         { status: response.status }
       );
     }
