@@ -10,34 +10,24 @@ interface Location {
 }
 
 interface CareCenterData {
-  id: string;
-  name: string;
-  type: string;
-  location: Location;
-  owner: {
+    id: string;
     name: string;
-    phone: string;
-  };
-  rating: number;
-  reviews: number;
-  distance: number;
-  isVerified: boolean;
-  image?: string;
-  description?: string;
-  operatingHours?: {
-    open: string;
-    close: string;
-  };
-  medicines?: Array<{ id: string; name: string }>;
-  services?: string[];
-  capacity?: number;
-  availableBeds?: number;
+    type: string;
+    location: Location;
+    owner: {
+        name: string;
+        phone: string;
+    };
+    rating: number;
+    reviews: number;
+    distance: number;
+    isVerified: boolean;
 }
 
 interface MapViewProps {
-  centers: CareCenterData[];
-  onSelectCenter: (center: CareCenterData) => void;
-  onLocationChange?: (location: { lat: number; lng: number }) => void;
+    centers: CareCenterData[];
+    onSelectCenter: (center: CareCenterData) => void;
+    onLocationChange?: (location: { lat: number; lng: number }) => void;
 }
 
 declare global {
@@ -57,11 +47,8 @@ export default function MapView({ centers, onSelectCenter, onLocationChange }: M
     const [error, setError] = useState<string | null>(null);
     const [locationPermissionAsked, setLocationPermissionAsked] = useState(false);
     const [locationGranted, setLocationGranted] = useState(false);
-    const [hoveredRoute, setHoveredRoute] = useState<any>(null);
-    const [routeDistance, setRouteDistance] = useState<string | null>(null);
     const markersRef = useRef<any[]>([]);
     const userMarkerRef = useRef<any>(null);
-    const routePolylineRef = useRef<any>(null);
 
     // Load Leaflet from CDN
     useEffect(() => {
@@ -300,19 +287,6 @@ export default function MapView({ centers, onSelectCenter, onLocationChange }: M
                 onSelectCenter(center);
             });
 
-            // Add hover listeners for route display
-            marker.on("mouseover", () => {
-                fetchAndDisplayRoute(
-                    center.location.latitude,
-                    center.location.longitude,
-                    center.id
-                );
-            });
-
-            marker.on("mouseout", () => {
-                clearRoute();
-            });
-
             markersRef.current.push(marker);
         });
     };
@@ -342,68 +316,9 @@ export default function MapView({ centers, onSelectCenter, onLocationChange }: M
     }, [centers, onSelectCenter]);
 
     const handleCenterOnMe = () => {
-      if (userLocation && map.current) {
-        map.current.setView([userLocation.lat, userLocation.lng], 13);
-      }
-    };
-
-    // Fetch and display route using OSRM (Open Source Routing Machine)
-    const fetchAndDisplayRoute = async (
-      centerLat: number,
-      centerLng: number,
-      centerId: string
-    ) => {
-      if (!userLocation) return;
-
-      try {
-        const userLat = userLocation.lat;
-        const userLng = userLocation.lng;
-
-        // OSRM API endpoint for route
-        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${userLng},${userLat};${centerLng},${centerLat}?overview=full&geometries=geojson`;
-
-        const response = await fetch(osrmUrl);
-        const data = await response.json();
-
-        if (data.routes && data.routes.length > 0) {
-          const route = data.routes[0];
-          const coordinates = route.geometry.coordinates.map((coord: any) => [
-            coord[1],
-            coord[0],
-          ]); // Convert [lng, lat] to [lat, lng]
-          const distance = (route.distance / 1000).toFixed(1); // Convert meters to km
-
-          // Remove existing route
-          if (routePolylineRef.current && map.current) {
-            map.current.removeLayer(routePolylineRef.current);
-          }
-
-          // Draw new route
-          const L = window.L;
-          routePolylineRef.current = L.polyline(coordinates, {
-            color: "#a3e635",
-            weight: 4,
-            opacity: 0.8,
-            dashArray: "5, 5",
-            className: "route-polyline",
-          }).addTo(map.current);
-
-          setRouteDistance(distance);
-          setHoveredRoute(centerId);
+        if (userLocation && map.current) {
+            map.current.setView([userLocation.lat, userLocation.lng], 13);
         }
-      } catch (err) {
-        console.error("Error fetching route:", err);
-      }
-    };
-
-    // Clear route on hover out
-    const clearRoute = () => {
-      if (routePolylineRef.current && map.current) {
-        map.current.removeLayer(routePolylineRef.current);
-        routePolylineRef.current = null;
-      }
-      setHoveredRoute(null);
-      setRouteDistance(null);
     };
 
     return (
@@ -449,28 +364,6 @@ export default function MapView({ centers, onSelectCenter, onLocationChange }: M
                     <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-5 h-5 text-green-600" />
                         <p className="text-sm font-medium text-green-900">Location found</p>
-                    </div>
-                </div>
-            )}
-
-            {/* Route Distance Display */}
-            {routeDistance && hoveredRoute && (
-                <div className="absolute top-4 right-4 z-20 bg-white/95 border-2 border-lime-400 rounded-lg shadow-lg p-4 max-w-xs">
-                    <div className="flex items-start gap-3">
-                        <div className="flex-shrink-0">
-                            <MapPin className="w-5 h-5 text-lime-600" />
-                        </div>
-                        <div className="flex-1">
-                            <p className="text-xs font-semibold text-gray-600 uppercase">
-                                Road Distance
-                            </p>
-                            <p className="text-2xl font-black text-lime-600 mt-1">
-                                {routeDistance} km
-                            </p>
-                            <p className="text-xs text-gray-500 mt-2">
-                                via actual road route
-                            </p>
-                        </div>
                     </div>
                 </div>
             )}
