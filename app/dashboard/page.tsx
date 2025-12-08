@@ -285,17 +285,19 @@ export default function DashboardPage() {
             <div className="text-sm opacity-90">Upcoming Vaccines</div>
           </motion.div>
 
-          <motion.div
-            whileHover={{ y: -5 }}
-            className="bg-lime-200/20 rounded-sm backdrop-blur-sm p-6 text-black shadow-lg"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <Activity className="w-8 h-8" />
-              <TrendingUp className="w-6 h-6 opacity-70" />
-            </div>
-            <div className="text-3xl font-black mb-1">87%</div>
-            <div className="text-sm opacity-90">Avg Health Score</div>
-          </motion.div>
+          <Link href="/cages">
+            <motion.div
+              whileHover={{ y: -5 }}
+              className="bg-lime-200/20 rounded-sm backdrop-blur-sm p-6 text-black shadow-lg cursor-pointer transition-all hover:border-2 hover:border-green-500"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <Activity className="w-8 h-8" />
+                <TrendingUp className="w-6 h-6 opacity-70" />
+              </div>
+              <div className="text-3xl font-black mb-1">Find Care</div>
+              <div className="text-sm opacity-90">Care Centers Nearby</div>
+            </motion.div>
+          </Link>
         </div>
 
         {/* Dogs Grid */}

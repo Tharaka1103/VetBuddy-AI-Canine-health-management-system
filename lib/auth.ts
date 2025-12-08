@@ -77,6 +77,20 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id;
         token.role = (user as any).role || "user";
       }
+      
+      // If no ID yet, try to get from database using email
+      if (!token.id && token.email) {
+        try {
+          await connectDB();
+          const dbUser = await User.findOne({ email: token.email });
+          if (dbUser) {
+            token.id = dbUser._id.toString();
+          }
+        } catch (error) {
+          console.error("Error getting user from database in JWT callback:", error);
+        }
+      }
+      
       return token;
     },
     async session({ session, token }) {
