@@ -649,7 +649,7 @@ export default function BuddyProfilePage() {
         >
           <div className="flex flex-col md:flex-row gap-8 items-start">
             {/* Dog Image */}
-            <div className="relative w-48 h-48 rounded-sm overflow-hidden shadow-xl flex-shrink-0 bg-gradient-to-br from-green-100 to-green-200 flex items-center justify-center">
+            <div className="relative w-full md:w-48 aspect-square rounded-sm overflow-hidden shadow-xl flex-shrink-0 bg-gradient-to-br from-green-100 to-green-200 flex items-center justify-center">
               <PawPrint className="w-16 h-16 text-green-500" />
             </div>
 
