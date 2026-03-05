@@ -1,84 +1,93 @@
-import { NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import GoogleProvider from "next-auth/providers/google";
-import GitHubProvider from "next-auth/providers/github";
-import { MongoDBAdapter } from "@next-auth/mongodb-adapter";
-import clientPromise from "@/lib/mongodb";
-import { User } from "@/models/User";
-import connectDB from "@/lib/connectDB";
-import bcrypt from "bcryptjs";
+import { SignJWT, jwtVerify } from "jose";
+import { cookies } from "next/headers";
+import { NextRequest, NextResponse } from "next/server";
 
-export const authOptions: NextAuthOptions = {
-  adapter: MongoDBAdapter(clientPromise),
-  providers: [
-    CredentialsProvider({
-      name: "Credentials",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
-          throw new Error("Invalid credentials");
-        }
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.JWT_SECRET || "woofy-super-secret-key-change-in-production"
+);
 
-        await connectDB();
+const TOKEN_NAME = "woofy-token";
 
-        const user = await User.findOne({ email: credentials.email });
+/* ------------------------------------------------------------------ */
+/*  Token helpers                                                      */
+/* ------------------------------------------------------------------ */
 
-        if (!user || !user.password) {
-          throw new Error("Invalid credentials");
-        }
+export interface TokenPayload {
+  userId: string;
+  email: string;
+  role: "admin" | "user";
+}
 
-        const isCorrectPassword = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
+/** Sign a JWT (Edge-compatible via `jose`) */
+export async function signToken(payload: TokenPayload): Promise<string> {
+  return new SignJWT(payload as unknown as Record<string, unknown>)
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime("7d")
+    .setIssuedAt()
+    .sign(JWT_SECRET);
+}
 
-        if (!isCorrectPassword) {
-          throw new Error("Invalid credentials");
-        }
+/** Verify a JWT and return the payload */
+export async function verifyToken(
+  token: string
+): Promise<TokenPayload | null> {
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    return payload as unknown as TokenPayload;
+  } catch {
+    return null;
+  }
+}
 
-        return {
-          id: user._id.toString(),
-          email: user.email,
-          name: user.name,
-          role: user.role || "user",
-        };
-      },
-    }),
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID || "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
-    }),
-    GitHubProvider({
-      clientId: process.env.GITHUB_ID || "",
-      clientSecret: process.env.GITHUB_SECRET || "",
-    }),
-  ],
-  session: {
-    strategy: "jwt",
-  },
-  pages: {
-    signIn: "/signin",
-    error: "/signin",
-  },
-  callbacks: {
-    async jwt({ token, user, account }) {
-      if (user) {
-        token.id = user.id;
-        token.role = (user as any).role || "user";
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      if (session.user) {
-        (session.user as any).id = token.id;
-        (session.user as any).role = token.role;
-      }
-      return session;
-    },
-  },
-  secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
-};
+/* ------------------------------------------------------------------ */
+/*  Cookie helpers                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Set the JWT cookie (server action / route handler) */
+export async function setAuthCookie(token: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(TOKEN_NAME, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 7, // 7 days
+  });
+}
+
+/** Remove the JWT cookie */
+export async function clearAuthCookie() {
+  const cookieStore = await cookies();
+  cookieStore.delete(TOKEN_NAME);
+}
+
+/** Read user info from the cookie (for server components / route handlers) */
+export async function getSession(): Promise<TokenPayload | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(TOKEN_NAME)?.value;
+  if (!token) return null;
+  return verifyToken(token);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Middleware helper                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Validate the token from the request cookies (edge-compatible).
+ * Returns the payload or null.
+ */
+export async function getSessionFromRequest(
+  req: NextRequest
+): Promise<TokenPayload | null> {
+  const token = req.cookies.get(TOKEN_NAME)?.value;
+  if (!token) return null;
+  return verifyToken(token);
+}
+
+/**
+ * Create a redirect response to the login page.
+ */
+export function redirectToLogin(req: NextRequest) {
+  return NextResponse.redirect(new URL("/login", req.url));
+}

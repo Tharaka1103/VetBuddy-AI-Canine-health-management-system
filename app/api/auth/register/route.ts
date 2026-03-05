@@ -1,64 +1,56 @@
-import { NextRequest, NextResponse } from "next/server"
-import bcrypt from "bcryptjs"
-import { User } from "@/models/User"
-import connectDB from "@/lib/connectDB"
+import { NextResponse } from "next/server";
+import { connectDB } from "@/lib/db";
+import User from "@/lib/models/user";
+import { signToken, setAuthCookie } from "@/lib/auth";
 
-export async function POST(request: NextRequest) {
+/* ------------------------------------------------------------------ */
+/*  POST /api/auth/register                                            */
+/* ------------------------------------------------------------------ */
+export async function POST(req: Request) {
   try {
-    await connectDB()
+    await connectDB();
+    const { name, email, password } = await req.json();
 
-    const { name, email, password } = await request.json()
-
-    // Validate input
     if (!name || !email || !password) {
       return NextResponse.json(
-        { error: "Name, email, and password are required" },
+        { error: "Name, email, and password are required." },
         { status: 400 }
-      )
+      );
     }
 
-    if (password.length < 6) {
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) {
       return NextResponse.json(
-        { error: "Password must be at least 6 characters" },
-        { status: 400 }
-      )
+        { error: "Email already registered." },
+        { status: 409 }
+      );
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email })
-    if (existingUser) {
-      return NextResponse.json(
-        { error: "User already exists" },
-        { status: 400 }
-      )
-    }
+    const user = await User.create({ name, email, password });
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 12)
-
-    // Create user
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      role: "user", // Default role for registration
-    })
-
-    // Return user without password
-    const { password: _, ...userWithoutPassword } = user.toObject()
+    const token = await signToken({
+      userId: user._id.toString(),
+      email: user.email,
+      role: user.role,
+    });
+    await setAuthCookie(token);
 
     return NextResponse.json(
       {
-        message: "User created successfully",
-        user: userWithoutPassword
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+        },
       },
       { status: 201 }
-    )
-  } catch (error) {
-    console.error("Registration error:", error)
+    );
+  } catch (err: unknown) {
+    console.error("Register error:", err);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Internal server error." },
       { status: 500 }
-    )
+    );
   }
 }

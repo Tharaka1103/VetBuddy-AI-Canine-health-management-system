@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  /* Suppress punycode deprecation warning from mongoose */
+  serverExternalPackages: ["mongoose"],
 };
 
 export default nextConfig;

@@ -1,37 +1,50 @@
-"use client"
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider } from "@/components/auth-provider";
+import { NavbarWrapper } from "@/components/navbar";
+import { Toaster } from "@/components/ui/sonner";
 
-import { Inter } from "next/font/google"
-import "./globals.css"
-import Header from "@/components/Header"
-import Footer from "@/components/Footer"
-import { usePathname } from "next/navigation"
-import { SessionProvider } from "next-auth/react"
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
 
-const inter = Inter({ subsets: ["latin"] })
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Woofy — Canine Health Management",
+  description:
+    "AI-powered canine health monitoring, anomaly detection, and continuous learning system.",
+};
 
 export default function RootLayout({
   children,
-}: {
-  children: React.ReactNode
-}) {
-  const pathname = usePathname()
-  
-  // Hide header and footer on auth pages
-  const isAuthPage = pathname === "/signin" || pathname === "/signup"
-
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <SessionProvider>
-          <div className="min-h-screen flex flex-col">
-            {!isAuthPage && <Header />}
-            <main >
-              {children}
-            </main>
-            {!isAuthPage && <Footer />}
-          </div>
-        </SessionProvider>
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        <ThemeProvider>
+          <AuthProvider>
+            <TooltipProvider>
+              <div className="flex min-h-screen flex-col">
+                <NavbarWrapper />
+                <main className="flex-1">{children}</main>
+              </div>
+            </TooltipProvider>
+            <Toaster richColors position="bottom-right" />
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
-  )
+  );
 }
