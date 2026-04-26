@@ -122,8 +122,8 @@ export function EmergencyAlertModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg border-destructive/50 sm:max-w-2xl">
-        <DialogHeader>
+      <DialogContent className="max-w-lg max-h-[85vh] border-destructive/50 sm:max-w-2xl flex flex-col">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-destructive">
             <motion.div
               animate={{ scale: [1, 1.2, 1] }}
@@ -138,7 +138,7 @@ export function EmergencyAlertModal({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="space-y-4 overflow-y-auto flex-1 pr-1">
           {/* Alert Details */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
@@ -160,7 +160,7 @@ export function EmergencyAlertModal({
           <div>
             <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
               <Hospital className="h-4 w-4 text-primary" />
-              Nearest Emergency Clinic
+              Best Emergency Clinic at Now
             </h3>
 
             {loading ? (

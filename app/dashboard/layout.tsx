@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { DashboardSidebar } from "@/components/dashboard-sidebar";
 import { Separator } from "@/components/ui/separator";
@@ -11,6 +12,18 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  const isTrainingHub = /\/dashboard\/[^/]+\/training/.test(pathname);
+
+  // Training hub has its own sidebar — skip the dashboard shell
+  if (isTrainingHub) {
+    return (
+      <LocationProvider>
+        <GoogleMapsProvider>{children}</GoogleMapsProvider>
+      </LocationProvider>
+    );
+  }
+
   return (
     <LocationProvider>
       <GoogleMapsProvider>

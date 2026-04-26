@@ -44,10 +44,18 @@ export async function PATCH(
     record.userFeedback = feedback;
     await record.save();
 
-    // ---- Send corrected data to Flask for continuous learning ----
-    if (feedback === "Incorrect" && canine) {
+    // ---- Send data to Flask for continuous learning ----
+    if (canine) {
       const breedMap: Record<string, number> = { Small: 0, Medium: 1, Large: 2 };
       const activityMap: Record<string, number> = { Resting: 0, Walking: 1, Running: 2 };
+
+      // Correct → keep original diagnosis; Incorrect → flip it
+      const actualStatus =
+        feedback === "Correct"
+          ? record.aiDiagnosis
+          : record.aiDiagnosis === "Anomaly"
+            ? "Healthy"
+            : "Anomaly";
 
       try {
         await fetch("http://localhost:5000/feedback", {
@@ -59,8 +67,7 @@ export async function PATCH(
             Dog_Temp: record.dogTemp,
             Heart_Rate: record.heartRate,
             Activity_Encoded: activityMap[record.activityLevel] ?? 0,
-            Actual_Status:
-              record.aiDiagnosis === "Anomaly" ? "Healthy" : "Anomaly",
+            Actual_Status: actualStatus,
           }),
         });
       } catch {

@@ -36,10 +36,12 @@ import {
   Navigation,
   Loader2,
   Stethoscope,
+  Award,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useGsapFadeIn } from "@/hooks/use-gsap";
 import { useLocation } from "@/components/location-provider";
+import { useFirebaseGPS } from "@/hooks/use-firebase-sensors";
 import { RouteMapCard } from "@/components/route-map-card";
 import { toast } from "sonner";
 
@@ -58,6 +60,9 @@ interface Clinic {
   Current_Wait_Time_Mins: number;
   Contact_Number: string;
   distance_km?: number;
+  travelTimeMins?: number;
+  totalTimeMins?: number;
+  isBest?: boolean;
 }
 
 const container = {
@@ -92,7 +97,19 @@ function FacilityIcon({ type }: { type: string }) {
 /* ------------------------------------------------------------------ */
 export default function ClinicsPage() {
   const headerRef = useGsapFadeIn<HTMLDivElement>(0, 0.7);
-  const { position, loading: geoLoading, locationName } = useLocation();
+  const { position: devicePosition, loading: geoLoading, locationName: deviceLocationName } = useLocation();
+  const firebaseGPS = useFirebaseGPS();
+
+  // Use belt GPS if available and has fix, otherwise fall back to device location
+  const position = firebaseGPS.beltOnline && firebaseGPS.gpsFix && firebaseGPS.lat && firebaseGPS.lng
+    ? { lat: firebaseGPS.lat, lng: firebaseGPS.lng }
+    : devicePosition;
+  
+  const locationName = firebaseGPS.beltOnline && firebaseGPS.gpsFix && firebaseGPS.lat && firebaseGPS.lng
+    ? "Dog's Belt Location"
+    : deviceLocationName;
+  
+  const isUsingBeltLocation = firebaseGPS.beltOnline && firebaseGPS.gpsFix && firebaseGPS.lat && firebaseGPS.lng;
 
   const [clinics, setClinics] = useState<Clinic[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,6 +118,13 @@ export default function ClinicsPage() {
   const [only24x7, setOnly24x7] = useState(false);
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null);
   const [usingFallback, setUsingFallback] = useState(false);
+
+  /* ---- Calculate travel time from distance (assuming 30 km/h average speed in city) ---- */
+  const calculateTravelTime = (distanceKm: number): number => {
+    // Average speed in city: 30 km/h = 0.5 km/min
+    const avgSpeedKmPerMin = 0.5;
+    return Math.round(distanceKm / avgSpeedKmPerMin);
+  };
 
   /* ---- Fetch clinics (geo-sorted when position available) ---- */
   const fetchClinics = useCallback(async () => {
@@ -123,6 +147,41 @@ export default function ClinicsPage() {
         if (nearbyRes.ok) {
           const nearbyData = await nearbyRes.json();
           results = nearbyData.clinics || [];
+          
+          // Calculate travel time and total time for each clinic
+          results = results.map(clinic => {
+            const distance = clinic.distance_km || 0;
+            const travelTime = calculateTravelTime(distance);
+            const totalTime = clinic.Current_Wait_Time_Mins + travelTime;
+            return {
+              ...clinic,
+              travelTimeMins: travelTime,
+              totalTimeMins: totalTime,
+            };
+          });
+
+          // Find the best clinic (lowest total time)
+          if (results.length > 0) {
+            const bestClinic = results.reduce((best, current) => {
+              // Consider total time as primary factor
+              if (current.totalTimeMins! < best.totalTimeMins!) {
+                return current;
+              }
+              // If total times are similar, consider rating
+              if (Math.abs(current.totalTimeMins! - best.totalTimeMins!) <= 5) {
+                if (current.Average_Rating > best.Average_Rating) {
+                  return current;
+                }
+              }
+              return best;
+            });
+            
+            // Mark the best clinic
+            results = results.map(clinic => ({
+              ...clinic,
+              isBest: clinic._id === bestClinic._id,
+            }));
+          }
         }
       }
 
@@ -275,12 +334,19 @@ export default function ClinicsPage() {
             {position && !usingFallback && " near your location"}
           </p>
           {position && (
-            <Badge variant="outline" className="gap-1 text-xs">
+            <Badge variant={isUsingBeltLocation ? "default" : "outline"} className={`gap-1 text-xs ${isUsingBeltLocation ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : ""}`}>
               <Navigation className="h-3 w-3" />
               {locationName || `${position.lat.toFixed(4)}, ${position.lng.toFixed(4)}`}
+              {isUsingBeltLocation && <span className="ml-1">(Belt GPS)</span>}
             </Badge>
           )}
         </div>
+        {isUsingBeltLocation && (
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+            <MapPin className="h-3.5 w-3.5 shrink-0" />
+            Using dog's belt GPS location for care center search
+          </div>
+        )}
         {usingFallback && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
             <MapPin className="h-3.5 w-3.5 shrink-0" />
@@ -335,6 +401,14 @@ export default function ClinicsPage() {
                 </CardHeader>
 
                 <CardContent className="flex flex-1 flex-col space-y-3">
+                  {/* Best Clinic Badge */}
+                  {clinic.isBest && (
+                    <Badge className="w-fit gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30">
+                      <Award className="h-3 w-3" />
+                      Best Choice
+                    </Badge>
+                  )}
+
                   {/* Rating & Wait Time */}
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="flex items-center gap-1">
@@ -350,6 +424,24 @@ export default function ClinicsPage() {
                     </div>
                   </div>
 
+                  {/* Travel Time & Total Time */}
+                  {clinic.travelTimeMins !== undefined && clinic.totalTimeMins !== undefined && (
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <Badge variant="outline" className="gap-1">
+                        <Navigation className="h-3 w-3" />
+                        {clinic.distance_km} km
+                      </Badge>
+                      <Badge variant="outline" className="gap-1">
+                        <Clock className="h-3 w-3" />
+                        ~{clinic.travelTimeMins} min travel
+                      </Badge>
+                      <Badge variant={clinic.isBest ? "default" : "outline"} className={`gap-1 ${clinic.isBest ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30" : ""}`}>
+                        <Clock className="h-3 w-3" />
+                        Total: ~{clinic.totalTimeMins} min
+                      </Badge>
+                    </div>
+                  )}
+
                   {/* Facility Type Badge */}
                   <Badge variant="secondary" className="w-fit text-xs">
                     {clinic.Facility_Type}
@@ -362,8 +454,8 @@ export default function ClinicsPage() {
                     </p>
                   )}
 
-                  {/* Distance badge */}
-                  {clinic.distance_km !== undefined && (
+                  {/* Distance badge (fallback if no travel time calculated) */}
+                  {clinic.distance_km !== undefined && clinic.travelTimeMins === undefined && (
                     <Badge variant="outline" className="w-fit gap-1 text-xs">
                       <Navigation className="h-3 w-3" />
                       {clinic.distance_km} km away

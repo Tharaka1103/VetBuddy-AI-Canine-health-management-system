@@ -29,9 +29,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Dog, Plus, Loader2, ArrowRight } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Dog, Plus, Loader2, ArrowRight, Pencil, Trash2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { useGsapStagger } from "@/hooks/use-gsap";
 import { toast } from "sonner";
@@ -65,10 +76,23 @@ export default function DashboardPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Form state
+  // Form state (register)
   const [dogName, setDogName] = useState("");
   const [breedSize, setBreedSize] = useState("");
   const [dogAge, setDogAge] = useState("");
+
+  // Edit state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingDog, setEditingDog] = useState<Canine | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editBreedSize, setEditBreedSize] = useState("");
+  const [editAge, setEditAge] = useState("");
+  const [updating, setUpdating] = useState(false);
+
+  // Delete state
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletingDog, setDeletingDog] = useState<Canine | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const staggerRef = useGsapStagger<HTMLDivElement>(":scope > a", 0.08);
 
@@ -117,6 +141,70 @@ export default function DashboardPage() {
       toast.error(err instanceof Error ? err.message : "Failed to register dog");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  /* ---- Open Edit Dialog ---- */
+  const openEditDialog = (dog: Canine, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setEditingDog(dog);
+    setEditName(dog.name);
+    setEditBreedSize(dog.breedSize);
+    setEditAge(dog.age.toString());
+    setEditDialogOpen(true);
+  };
+
+  /* ---- Update Dog ---- */
+  const handleUpdateDog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDog) return;
+    setUpdating(true);
+    try {
+      const res = await fetch(`/api/canines/${editingDog._id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editName,
+          breedSize: editBreedSize,
+          age: Number(editAge),
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to update dog");
+      }
+      toast.success(`${editName}'s details have been updated!`);
+      setEditDialogOpen(false);
+      setEditingDog(null);
+      fetchCanines();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to update dog");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  /* ---- Delete Dog ---- */
+  const handleDeleteDog = async () => {
+    if (!deletingDog) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/canines/${deletingDog._id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to delete dog");
+      }
+      toast.success(`${deletingDog.name} has been removed.`);
+      setDeleteDialogOpen(false);
+      setDeletingDog(null);
+      fetchCanines();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete dog");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -247,7 +335,32 @@ export default function DashboardPage() {
                       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                         <Dog className="h-6 w-6 text-primary" />
                       </div>
-                      <Badge variant="secondary">{dog.breedSize}</Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="secondary">{dog.breedSize}</Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-primary"
+                          onClick={(e) => openEditDialog(dog, e)}
+                          title="Edit dog"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDeletingDog(dog);
+                            setDeleteDialogOpen(true);
+                          }}
+                          title="Delete dog"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     <CardTitle className="mt-3 text-xl">{dog.name}</CardTitle>
                     <CardDescription>
@@ -267,6 +380,96 @@ export default function DashboardPage() {
           ))}
         </motion.div>
       )}
+
+      {/* ---- Edit Dog Dialog ---- */}
+      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Dog Details</DialogTitle>
+            <DialogDescription>
+              Update {editingDog?.name}&apos;s information below.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleUpdateDog} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="editName">Dog Name</Label>
+              <Input
+                id="editName"
+                placeholder="e.g. Max"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editBreedSize">Breed Size</Label>
+              <Select value={editBreedSize} onValueChange={setEditBreedSize} required>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select breed size" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Small">Small</SelectItem>
+                  <SelectItem value="Medium">Medium</SelectItem>
+                  <SelectItem value="Large">Large</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="editAge">Age (years)</Label>
+              <Input
+                id="editAge"
+                type="number"
+                min="0"
+                max="30"
+                placeholder="e.g. 3"
+                value={editAge}
+                onChange={(e) => setEditAge(e.target.value)}
+                required
+              />
+            </div>
+            <Separator />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={updating || !editBreedSize}>
+                {updating && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Delete Confirmation ---- */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deletingDog?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. All health records associated with
+              this dog will remain but the dog profile will be permanently removed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteDog}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -178,6 +178,29 @@ export function useBeltSimulator(
     setHistory([]);
   }, []);
 
+  // ---- Sync to localStorage for cross-page access ----
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("woofy_belt_connected", JSON.stringify(connected));
+      if (connected && currentData) {
+        localStorage.setItem("woofy_belt_heartRate", String(currentData.heartRate));
+        localStorage.setItem("woofy_belt_dogTemp", String(currentData.dogTemp));
+        localStorage.setItem("woofy_belt_ambientTemp", String(currentData.ambientTemp));
+        localStorage.setItem("woofy_belt_activityLevel", currentData.activityLevel);
+        localStorage.setItem("woofy_belt_lastSync", currentData.timestamp);
+      } else {
+        localStorage.removeItem("woofy_belt_heartRate");
+        localStorage.removeItem("woofy_belt_dogTemp");
+        localStorage.removeItem("woofy_belt_ambientTemp");
+        localStorage.removeItem("woofy_belt_activityLevel");
+        localStorage.removeItem("woofy_belt_lastSync");
+      }
+    } catch {
+      /* localStorage unavailable */
+    }
+  }, [connected, currentData]);
+
   const beltStatus: BeltStatus = {
     connected,
     batteryLevel: round2(battery),
@@ -194,4 +217,56 @@ export function useBeltSimulator(
     beltStatus,
     clearHistory,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Read belt data from localStorage (for cross-page access)           */
+/* ------------------------------------------------------------------ */
+export interface BeltLocalStorageData {
+  connected: boolean;
+  heartRate: number | null;
+  dogTemp: number | null;
+  ambientTemp: number | null;
+  activityLevel: string | null;
+  lastSyncedAt: string | null;
+}
+
+export function useBeltFromLocalStorage(pollMs = 2000): BeltLocalStorageData {
+  const [data, setData] = useState<BeltLocalStorageData>({
+    connected: false,
+    heartRate: null,
+    dogTemp: null,
+    ambientTemp: null,
+    activityLevel: null,
+    lastSyncedAt: null,
+  });
+
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = localStorage.getItem("woofy_belt_connected");
+        const connected = raw === "true";
+        const hr = localStorage.getItem("woofy_belt_heartRate");
+        const dt = localStorage.getItem("woofy_belt_dogTemp");
+        const at = localStorage.getItem("woofy_belt_ambientTemp");
+        const al = localStorage.getItem("woofy_belt_activityLevel");
+        const ls = localStorage.getItem("woofy_belt_lastSync");
+        setData({
+          connected,
+          heartRate: hr ? parseFloat(hr) : null,
+          dogTemp: dt ? parseFloat(dt) : null,
+          ambientTemp: at ? parseFloat(at) : null,
+          activityLevel: al || null,
+          lastSyncedAt: ls || null,
+        });
+      } catch {
+        /* localStorage unavailable */
+      }
+    };
+    read();
+    const timer = setInterval(read, pollMs);
+    return () => clearInterval(timer);
+  }, [pollMs]);
+
+  return data;
 }

@@ -75,12 +75,14 @@ import {
   Area,
 } from "recharts";
 import {
-  useBeltSimulator,
+  useFirebaseSensors,
+  useFirebaseGPS,
   type BeltSensorData,
-} from "@/hooks/use-belt-simulator";
+} from "@/hooks/use-firebase-sensors";
 import { useLocation } from "@/components/location-provider";
 import { RouteMapCard } from "@/components/route-map-card";
 import { EmergencyAlertModal } from "@/components/emergency-alert-modal";
+import { NeuroFuzzySeverity } from "@/components/neuro-fuzzy-severity";
 import Link from "next/link";
 
 /* ------------------------------------------------------------------ */
@@ -149,20 +151,22 @@ function SensorGauge({
   warningLow?: number;
   warningHigh?: number;
 }) {
+  const isZeroValue = value === 0;
   const percentage = Math.min(
     100,
     Math.max(0, ((value - min) / (max - min)) * 100)
   );
   const isWarning =
-    (warningLow !== undefined && value < warningLow) ||
-    (warningHigh !== undefined && value > warningHigh);
+    !isZeroValue &&
+    ((warningLow !== undefined && value < warningLow) ||
+      (warningHigh !== undefined && value > warningHigh));
 
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       className={`relative overflow-hidden rounded-xl border p-4 transition-colors ${
-        isWarning
+        isWarning || isZeroValue
           ? "border-destructive/50 bg-destructive/5"
           : "border-border bg-card"
       }`}
@@ -192,7 +196,16 @@ function SensorGauge({
           transition={{ duration: 0.5 }}
         />
       </div>
-      {isWarning && (
+      {isZeroValue ? (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mt-2 flex items-center gap-1 text-xs text-destructive"
+        >
+          <AlertTriangle className="h-3 w-3" />
+          Please turn on belt or place sensors
+        </motion.div>
+      ) : isWarning && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -300,15 +313,39 @@ export default function DogDashboardPage({
   // Latest result
   const [latestResult, setLatestResult] = useState<HealthRecord | null>(null);
 
-  // IoT Belt Simulator
-  const belt = useBeltSimulator(2000, 60);
+  // Neuro-Fuzzy results
+  const [neuroFuzzyResult, setNeuroFuzzyResult] = useState<{
+    severity_score: number;
+    status_label: string;
+    is_novel_anomaly: boolean;
+  } | null>(null);
+
+  // IoT Belt - Firebase Realtime Sensors
+  const belt = useFirebaseSensors(60);
+  console.log("[Dashboard] Belt state:", {
+    connected: belt.connected,
+    beltOnline: belt.beltStatus.beltOnline,
+    currentData: belt.currentData,
+    battery: belt.beltStatus.batteryLevel,
+    uptime: belt.beltStatus.uptime,
+    sensorStatus: belt.beltStatus.sensorStatus,
+  });
+  
   const [autoFillFromBelt, setAutoFillFromBelt] = useState(true);
   const [autoAnalyze, setAutoAnalyze] = useState(true);
   const analyzingRef = useRef(false);
   const runAnalysisRef = useRef<(opts?: { silent?: boolean }) => Promise<void>>(undefined);
 
   // Geolocation
-  const { position: userPosition } = useLocation();
+  const { position: devicePosition, locationName: deviceLocationName } = useLocation();
+  const firebaseGPS = useFirebaseGPS();
+
+  // Use belt GPS if available and has fix, otherwise fall back to device location
+  const userPosition = firebaseGPS.beltOnline && firebaseGPS.gpsFix && firebaseGPS.lat && firebaseGPS.lng
+    ? { lat: firebaseGPS.lat, lng: firebaseGPS.lng }
+    : devicePosition;
+  
+  const isUsingBeltLocation = firebaseGPS.beltOnline && firebaseGPS.gpsFix && firebaseGPS.lat && firebaseGPS.lng;
 
   // Care AI state
   const [carePrediction, setCarePrediction] = useState<CareAIPrediction | null>(null);
@@ -318,6 +355,14 @@ export default function DogDashboardPage({
   // Emergency modal
   const [emergencyOpen, setEmergencyOpen] = useState(false);
   const [emergencyData, setEmergencyData] = useState({ diagnosis: "", reason: "" });
+
+  // Historical risk baselining
+  const [historicalRisk, setHistoricalRisk] = useState<{
+    risk: boolean;
+    avgTemp: number | null;
+    avgHR: number | null;
+    message: string;
+  } | null>(null);
 
   const pulseRef = useGsapPulse<HTMLDivElement>(
     latestResult?.aiDiagnosis === "Anomaly"
@@ -395,7 +440,8 @@ export default function DogDashboardPage({
           // Fetch the best clinic of the recommended type
           let foundClinic = false;
 
-          // 1. Try nearby clinics first (if we have user position)
+          // 1. Try nearby clinics first (prefer sensor GPS, fallback to user position)
+          // userPosition already uses belt GPS when available via useFirebaseGPS hook
           if (userPosition) {
             const clinicParams = new URLSearchParams({
               lat: userPosition.lat.toString(),
@@ -444,7 +490,7 @@ export default function DogDashboardPage({
         setCareLoading(false);
       }
     },
-    [canine, userPosition]
+    [canine, userPosition, belt.currentData]
   );
 
   /* ---- AI Analysis (core logic) ---- */
@@ -453,35 +499,100 @@ export default function DogDashboardPage({
       if (analyzingRef.current) return;
       analyzingRef.current = true;
       setAnalyzing(true);
-      if (!opts?.silent) setLatestResult(null);
+      if (!opts?.silent) {
+        setLatestResult(null);
+        setNeuroFuzzyResult(null);
+      }
 
       try {
-        const res = await fetch("/api/health", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            canineId: id,
-            ambientTemp: Number(ambientTemp),
-            dogTemp: Number(dogTemp),
-            heartRate: Number(heartRate),
-            activityLevel,
+        // Call both /api/health (for record keeping) and /api/vitals (for neuro-fuzzy severity)
+        const [healthRes, vitalsRes] = await Promise.all([
+          fetch("/api/health", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              canineId: id,
+              ambientTemp: Number(ambientTemp),
+              dogTemp: Number(dogTemp),
+              heartRate: Number(heartRate),
+              activityLevel,
+            }),
           }),
-        });
+          fetch("/api/vitals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              canineId: id,
+              ambientTemp: Number(ambientTemp),
+              dogTemp: Number(dogTemp),
+              heartRate: Number(heartRate),
+              activityLevel,
+              breedSize: canine?.breedSize || "Medium",
+            }),
+          }).catch(() => null), // Don't fail if neuro-fuzzy is unavailable
+        ]);
 
-        if (!res.ok) {
-          const data = await res.json();
+        if (!healthRes.ok) {
+          const data = await healthRes.json();
           throw new Error(data.error || "Analysis failed");
         }
 
-        const data = await res.json();
-        setLatestResult(data.record);
-        setRecords((prev) => [data.record, ...prev]);
+        const healthData = await healthRes.json();
+        setLatestResult(healthData.record);
+        setRecords((prev) => [healthData.record, ...prev]);
 
-        if (data.record.aiDiagnosis === "Anomaly") {
+        // Get neuro-fuzzy results if available
+        if (vitalsRes && vitalsRes.ok) {
+          try {
+            const vitalsData = await vitalsRes.json();
+            console.log("[Dashboard] Neuro-Fuzzy result:", vitalsData);
+            setNeuroFuzzyResult({
+              severity_score: vitalsData.severity_score,
+              status_label: vitalsData.status_label,
+              is_novel_anomaly: vitalsData.is_novel_anomaly,
+            });
+          } catch (e) {
+            console.error("[Dashboard] Failed to parse neuro-fuzzy response:", e);
+            // Set fallback severity based on legacy diagnosis
+            setNeuroFuzzyResult({
+              severity_score: healthData.record.aiDiagnosis === "Anomaly" ? 75 : 15,
+              status_label: healthData.record.aiDiagnosis === "Anomaly" ? "Severe" : "Normal",
+              is_novel_anomaly: false,
+            });
+          }
+        } else {
+          console.warn("[Dashboard] Neuro-fuzzy API unavailable or failed, using fallback");
+          // Set fallback severity based on legacy diagnosis
+          setNeuroFuzzyResult({
+            severity_score: healthData.record.aiDiagnosis === "Anomaly" ? 75 : 15,
+            status_label: healthData.record.aiDiagnosis === "Anomaly" ? "Severe" : "Normal",
+            is_novel_anomaly: false,
+          });
+        }
+
+        // Check historical risk baselining
+        try {
+          const riskRes = await fetch(`/api/canines/${id}/historical-risk`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              currentBodyTemp: Number(dogTemp),
+              currentHeartRate: Number(heartRate),
+            }),
+          });
+          if (riskRes.ok) {
+            const riskData = await riskRes.json();
+            setHistoricalRisk(riskData);
+          }
+        } catch {
+          /* silent — non-critical */
+        }
+
+        if (healthData.record.aiDiagnosis === "Anomaly") {
           toast.warning("Anomaly detected! Review the diagnosis below.");
 
           // Determine condition & severity from reason for care AI
-          const reason = data.record.aiReason || "";
+          const reason = healthData.record.aiReason || "";
           let condition = "Anomaly";
           let severity = "Moderate";
           if (reason.includes("High Temperature") || reason.includes("Fever") || reason.includes("Heat Stroke")) {
@@ -501,14 +612,12 @@ export default function DogDashboardPage({
           // Call care AI
           fetchCareAI(condition, severity);
 
-          // If severe — open emergency modal
-          if (severity === "Severe") {
-            setEmergencyData({
-              diagnosis: data.record.aiDiagnosis,
-              reason: data.record.aiReason,
-            });
-            setEmergencyOpen(true);
-          }
+          // Open emergency modal for all anomalies
+          setEmergencyData({
+            diagnosis: healthData.record.aiDiagnosis,
+            reason: healthData.record.aiReason,
+          });
+          setEmergencyOpen(true);
         } else if (!opts?.silent) {
           toast.success("Your dog appears healthy!");
         }
@@ -521,7 +630,7 @@ export default function DogDashboardPage({
         analyzingRef.current = false;
       }
     },
-    [id, ambientTemp, dogTemp, heartRate, activityLevel, fetchCareAI]
+    [id, ambientTemp, dogTemp, heartRate, activityLevel, fetchCareAI, canine?.breedSize]
   );
 
   // Keep a ref to the latest runAnalysis so the interval never goes stale
@@ -677,6 +786,18 @@ export default function DogDashboardPage({
         <Badge variant="outline" className="text-sm">
           <Dog className="mr-1 h-3 w-3" /> {canine.breedSize}
         </Badge>
+        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+          <Link href={`/dashboard/${id}/dermatology`}>
+            <Stethoscope className="h-3.5 w-3.5" />
+            Dermatology
+          </Link>
+        </Button>
+        <Button variant="outline" size="sm" className="gap-1.5" asChild>
+          <Link href={`/dashboard/${id}/training`}>
+            <Zap className="h-3.5 w-3.5" />
+            Training Hub
+          </Link>
+        </Button>
       </div>
 
       {/* ================================================================ */}
@@ -696,79 +817,28 @@ export default function DogDashboardPage({
               </CardTitle>
               <div className="flex items-center gap-4">
                 {/* Belt status badges */}
-                {belt.connected && (
-                  <div className="hidden items-center gap-3 sm:flex">
+                <div className="hidden items-center gap-3 sm:flex">
+                  <Badge variant="outline" className="gap-1 text-xs">
+                    <Battery className="h-3 w-3" />
+                    {Math.round(belt.beltStatus.batteryLevel)}%
+                  </Badge>
+                  <Badge variant="outline" className="gap-1 text-xs">
+                    <Signal className="h-3 w-3" />
+                    {belt.beltStatus.signalStrength}%
+                  </Badge>
+                  <Badge variant="outline" className="gap-1 text-xs">
+                    v{belt.beltStatus.firmwareVersion}
+                  </Badge>
+                  {belt.beltStatus.uptime && (
                     <Badge variant="outline" className="gap-1 text-xs">
-                      <Battery className="h-3 w-3" />
-                      {Math.round(belt.beltStatus.batteryLevel)}%
+                      ⏱️ {belt.beltStatus.uptime}
                     </Badge>
-                    <Badge variant="outline" className="gap-1 text-xs">
-                      <Signal className="h-3 w-3" />
-                      {belt.beltStatus.signalStrength}%
-                    </Badge>
-                    <Badge variant="outline" className="gap-1 text-xs">
-                      v{belt.beltStatus.firmwareVersion}
-                    </Badge>
-                  </div>
-                )}
-                {/* Connect toggle */}
-                <div className="flex items-center gap-2">
-                  <AnimatePresence mode="wait">
-                    {belt.connected ? (
-                      <motion.div
-                        key="connected"
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        className="flex items-center gap-1.5"
-                      >
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                          <span className="inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
-                        </span>
-                        <span className="text-sm font-medium text-green-600 dark:text-green-400">
-                          Connected
-                        </span>
-                      </motion.div>
-                    ) : (
-                      <motion.div
-                        key="disconnected"
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        className="flex items-center gap-1.5"
-                      >
-                        <span className="inline-flex h-2.5 w-2.5 rounded-full bg-muted-foreground/40" />
-                        <span className="text-sm text-muted-foreground">
-                          Disconnected
-                        </span>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                  <Button
-                    variant={belt.connected ? "destructive" : "default"}
-                    size="sm"
-                    onClick={() => {
-                      belt.toggleConnection();
-                      toast(
-                        belt.connected
-                          ? "Belt disconnected"
-                          : "Belt connected — streaming sensor data"
-                      );
-                    }}
-                    className="gap-1.5"
-                  >
-                    {belt.connected ? (
-                      <>
-                        <WifiOff className="h-3.5 w-3.5" /> Disconnect
-                      </>
-                    ) : (
-                      <>
-                        <Wifi className="h-3.5 w-3.5" /> Connect Belt
-                      </>
-                    )}
-                  </Button>
+                  )}
+                  <Badge variant={belt.beltStatus.beltPhysicalOn ? "default" : "outline"} className={`gap-1 text-xs ${belt.beltStatus.beltPhysicalOn ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : ""}`}>
+                    {belt.beltStatus.beltPhysicalOn ? "Belt ON" : "Belt OFF"}
+                  </Badge>
                 </div>
+                
               </div>
             </div>
             <CardDescription>
@@ -1255,6 +1325,12 @@ export default function DogDashboardPage({
                         <Badge variant="secondary" className="text-xs gap-1">
                           {recommendedClinic.Facility_Type}
                         </Badge>
+                        {isUsingBeltLocation && (
+                          <Badge variant="outline" className="text-xs gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                            <Navigation className="h-3 w-3" />
+                            From Belt GPS
+                          </Badge>
+                        )}
                       </div>
 
                       {/* Specializations */}
@@ -1475,99 +1551,26 @@ export default function DogDashboardPage({
         >
           <Card className="flex h-full flex-col">
             <CardHeader>
-              <CardTitle>AI Diagnosis Result</CardTitle>
+              <CardTitle>Neuro-Fuzzy Severity Analysis</CardTitle>
               <CardDescription>
-                Explainable AI prediction with reasoning
+                AI-powered severity scoring with ensemble models
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col justify-center">
               <AnimatePresence mode="wait">
-                {latestResult ? (
+                {neuroFuzzyResult ? (
                   <motion.div
-                    key={latestResult._id}
+                    key="neuro-fuzzy"
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.9 }}
                     className="space-y-4"
                   >
-                    {/* Status indicator */}
-                    <div
-                      ref={pulseRef}
-                      className={`rounded-xl border p-6 text-center ${
-                        latestResult.aiDiagnosis === "Anomaly"
-                          ? "border-destructive/40 bg-destructive/5"
-                          : "border-primary/40 bg-primary/5"
-                      }`}
-                    >
-                      {latestResult.aiDiagnosis === "Anomaly" ? (
-                        <>
-                          <AlertTriangle className="mx-auto h-10 w-10 text-destructive" />
-                          <h3 className="mt-2 text-xl font-bold text-destructive">
-                            Anomaly Detected
-                          </h3>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="mx-auto h-10 w-10 text-primary" />
-                          <h3 className="mt-2 text-xl font-bold text-primary">
-                            Healthy
-                          </h3>
-                        </>
-                      )}
-                      {latestResult.aiReason && (
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {latestResult.aiReason}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Feedback UI */}
-                    {latestResult.aiDiagnosis === "Anomaly" &&
-                      latestResult.userFeedback === "Pending" && (
-                        <Alert>
-                          <AlertTriangle className="h-4 w-4" />
-                          <AlertTitle>Was this diagnosis correct?</AlertTitle>
-                          <AlertDescription className="mt-2">
-                            Your feedback helps the AI learn and improve.
-                            <div className="mt-3 flex gap-2">
-                              <Button
-                                size="sm"
-                                onClick={() =>
-                                  handleFeedback(latestResult._id, "Correct")
-                                }
-                              >
-                                <CheckCircle className="mr-1 h-4 w-4" /> Yes,
-                                Correct
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  handleFeedback(latestResult._id, "Incorrect")
-                                }
-                              >
-                                <XCircle className="mr-1 h-4 w-4" /> No,
-                                Incorrect
-                              </Button>
-                            </div>
-                          </AlertDescription>
-                        </Alert>
-                      )}
-
-                    {latestResult.userFeedback !== "Pending" && (
-                      <p className="text-center text-sm text-muted-foreground">
-                        Feedback:{" "}
-                        <Badge
-                          variant={
-                            latestResult.userFeedback === "Correct"
-                              ? "default"
-                              : "destructive"
-                          }
-                        >
-                          {latestResult.userFeedback}
-                        </Badge>
-                      </p>
-                    )}
+                    <NeuroFuzzySeverity
+                      severityScore={neuroFuzzyResult.severity_score}
+                      statusLabel={neuroFuzzyResult.status_label}
+                      isNovelAnomaly={neuroFuzzyResult.is_novel_anomaly}
+                    />
                   </motion.div>
                 ) : (
                   <motion.div
@@ -1577,10 +1580,28 @@ export default function DogDashboardPage({
                     className="flex flex-col items-center py-8 text-center text-muted-foreground"
                   >
                     <Activity className="mb-3 h-12 w-12 opacity-30" />
-                    <p>Submit vitals to get an AI diagnosis</p>
+                    <p>Submit vitals to get AI severity analysis</p>
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* ---- Historical Risk Baselining Alert ---- */}
+              {historicalRisk?.risk && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="mt-4"
+                >
+                  <Alert variant="warning">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Historical Risk Warning</AlertTitle>
+                    <AlertDescription>
+                      {historicalRisk.message}
+                    </AlertDescription>
+                  </Alert>
+                </motion.div>
+              )}
             </CardContent>
           </Card>
         </motion.div>
@@ -1667,8 +1688,16 @@ export default function DogDashboardPage({
         transition={{ duration: 0.5, delay: 0.4 }}
       >
         <Card>
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Recent Records</CardTitle>
+            {records.length > 0 && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/dashboard/${id}/records`}>
+                  View All Records
+                  <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {records.length === 0 ? (

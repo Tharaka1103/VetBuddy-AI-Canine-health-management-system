@@ -12,3 +12,13 @@ export type { INotification } from "./notification";
 
 export { default as CareCenter } from "./care-center";
 export type { ICareCenter } from "./care-center";
+
+export { default as SkinTreatment } from "./skin-treatment";
+export type { ISkinTreatment, IProgressLog } from "./skin-treatment";
+
+export { default as TrainingSession } from "./training-session";
+export type { ITrainingSession } from "./training-session";
+
+export { default as BarkHistory } from "./bark-history";
+export type { IBarkHistory } from "./bark-history";
+

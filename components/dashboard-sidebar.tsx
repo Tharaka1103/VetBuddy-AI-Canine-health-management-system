@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { useLocation } from "@/components/location-provider";
+import { useFirebaseGPS } from "@/hooks/use-firebase-sensors";
 import {
   Sidebar,
   SidebarContent,
@@ -68,6 +69,31 @@ export function DashboardSidebar() {
     refreshLocation,
     isManual,
   } = useLocation();
+  
+  const firebaseGPS = useFirebaseGPS();
+
+  console.log("[Sidebar] Firebase GPS data:", firebaseGPS);
+  console.log("[Sidebar] Device position:", position);
+
+  // Display Firebase error if any
+  if (firebaseGPS.error) {
+    console.error("[Sidebar] Firebase GPS Error:", firebaseGPS.error);
+  }
+
+  // Use belt GPS if available, belt is online, and has satellite fix with coordinates
+  const hasValidBeltGPS = firebaseGPS.beltOnline && firebaseGPS.gpsFix && firebaseGPS.lat && firebaseGPS.lng;
+  const displayPosition = hasValidBeltGPS
+    ? { lat: firebaseGPS.lat, lng: firebaseGPS.lng }
+    : position;
+  
+  const isBeltLocation = hasValidBeltGPS;
+  const displayLocationName = isBeltLocation ? "Dog's Belt Location" : locationName;
+  const displayLoading = firebaseGPS.loading || (isBeltLocation ? false : locationLoading);
+
+  // Show GPS status when belt is online but no fix yet
+  const showGpsStatus = firebaseGPS.beltOnline && !firebaseGPS.gpsFix;
+
+  console.log("[Sidebar] Display position:", displayPosition, "isBeltLocation:", isBeltLocation, "showGpsStatus:", showGpsStatus, "Error:", firebaseGPS.error);
 
   /* Format accuracy for display */
   const accuracyLabel = accuracy
@@ -130,7 +156,7 @@ export function DashboardSidebar() {
           <SidebarGroupContent>
             <div className="px-2 group-data-[collapsible=icon]:hidden">
               <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2">
-                {locationLoading ? (
+                {displayLoading ? (
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     Detecting location…
@@ -138,22 +164,42 @@ export function DashboardSidebar() {
                 ) : (
                   <>
                     <div className="flex items-start gap-2">
-                      <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                      <MapPin className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isBeltLocation ? "text-emerald-500" : "text-primary"}`} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-medium leading-tight">
-                          {locationName}
+                          {displayLocationName}
                         </p>
-                        {position && (
-                          <p className="mt-0.5 text-[10px] text-muted-foreground font-mono">
-                            {position.lat.toFixed(4)}, {position.lng.toFixed(4)}
+                        {showGpsStatus ? (
+                          <p className="mt-0.5 text-[10px] text-amber-500 font-mono">
+                            GPS searching... ({firebaseGPS.satellites || 0} satellites)
                           </p>
-                        )}
+                        ) : displayPosition && displayPosition.lat && displayPosition.lng ? (
+                          <p className="mt-0.5 text-[10px] text-muted-foreground font-mono">
+                            {displayPosition.lat.toFixed(4)}, {displayPosition.lng.toFixed(4)}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
                     {/* Status badges */}
                     <div className="flex flex-wrap gap-1">
-                      {isManual && (
+                      {isBeltLocation && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] h-4 px-1.5 font-normal text-emerald-600 border-emerald-500/30 dark:text-emerald-400"
+                        >
+                          Belt GPS
+                        </Badge>
+                      )}
+                      {showGpsStatus && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] h-4 px-1.5 font-normal text-amber-600 border-amber-500/30 dark:text-amber-400"
+                        >
+                          GPS Searching
+                        </Badge>
+                      )}
+                      {isManual && !isBeltLocation && (
                         <Badge
                           variant="outline"
                           className="text-[10px] h-4 px-1.5 font-normal text-muted-foreground"
@@ -161,7 +207,7 @@ export function DashboardSidebar() {
                           Manual
                         </Badge>
                       )}
-                      {accuracyLabel && !isManual && (
+                      {accuracyLabel && !isManual && !isBeltLocation && (
                         <Badge
                           variant="outline"
                           className={`text-[10px] h-4 px-1.5 font-normal ${
@@ -175,7 +221,7 @@ export function DashboardSidebar() {
                           {accuracyLabel}
                         </Badge>
                       )}
-                      {locationError && !isManual && (
+                      {locationError && !isManual && !isBeltLocation && (
                         <Badge
                           variant="outline"
                           className="text-[10px] h-4 px-1.5 font-normal text-amber-600 border-amber-500/30 dark:text-amber-400"
@@ -185,7 +231,7 @@ export function DashboardSidebar() {
                       )}
                     </div>
 
-                    {locationError && !isManual && (
+                    {locationError && !isManual && !isBeltLocation && (
                       <p className="text-[10px] text-amber-500 leading-tight">
                         {locationError}
                       </p>
@@ -196,10 +242,10 @@ export function DashboardSidebar() {
                       size="sm"
                       className="w-full gap-1.5 text-xs h-7"
                       onClick={refreshLocation}
-                      disabled={locationLoading}
+                      disabled={displayLoading}
                     >
                       <LocateFixed className="h-3 w-3" />
-                      {position ? "Refresh Location" : "Get Current Location"}
+                      {displayPosition ? "Refresh Location" : "Get Current Location"}
                     </Button>
                   </>
                 )}
