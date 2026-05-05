@@ -302,7 +302,7 @@ export default function TreatmentTrackingPage({
       setLoading(false);
     }
   }, [treatmentId, id, router]);
-
+// Status change
   useEffect(() => {
     fetchTreatment();
   }, [fetchTreatment]);
